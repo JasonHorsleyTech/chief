@@ -12,6 +12,21 @@
 
 ---
 
+## 2026-03-03 - US-006
+- Added `PromptsDir string` field to `prd.ConvertOptions` in `internal/prd/generator.go`
+- Added `promptsDir string` parameter to `runClaudeConversion`; passes it to `embed.GetConvertPrompt`
+- Added `PromptsDir string` field to `cmd.ConvertOptions` in `internal/cmd/new.go`
+- `RunConvertWithOptions` now forwards `opts.PromptsDir` to `prd.ConvertOptions`
+- `RunNew` now calls `RunConvertWithOptions` (instead of `RunConvert`) passing `opts.PromptsDir`
+- Inline conversion in `main.go` `runTUIWithOptions` now passes `opts.PromptsDir` in `prd.ConvertOptions`
+- `embed.GetDetectSetupPrompt` already had `promptsDir string` as its first parameter (added in US-002); no call sites in production code exist yet, so no call-site updates were needed
+- Files changed: `internal/prd/generator.go`, `internal/cmd/new.go`, `cmd/chief/main.go`
+- **Learnings for future iterations:**
+  - `runClaudeConversion` in `internal/prd/generator.go` is a private helper called by `Convert`; to thread a new option through it you must add the parameter to both the call site in `Convert` and the function signature.
+  - `RunConvert(prdDir string)` is a convenience wrapper; prefer `RunConvertWithOptions` when you need to thread extra options — avoid adding parameters to `RunConvert` to keep the simple API stable.
+  - `GetDetectSetupPrompt` has no production call sites — the function signature update in US-002 is sufficient for now.
+---
+
 ## 2026-03-03 - US-001
 - Added `PromptsDir string` field to `TUIOptions` struct in `cmd/chief/main.go`
 - Added `--prompts-dir <path>` and `--prompts-dir=<path>` flag parsing in `parseTUIFlags()`
