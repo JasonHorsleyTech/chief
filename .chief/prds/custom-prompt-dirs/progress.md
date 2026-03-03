@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- `embed.RawTemplates()` returns a `map[string]string` of all five embedded template filenames to their raw (unsubstituted) content — use this when writing defaults to disk (e.g. `init-prompts`), not the `Get*` functions which perform variable substitution.
 - CLI flag parsing uses a hand-rolled switch-case loop in `parseTUIFlags()` (cmd/chief/main.go), not the standard `flag` package. New flags follow the same space-separated and `=`-separated patterns.
 - Value-taking flags validate inline and call `os.Exit(1)` on error — no error returns.
 - `TUIOptions` is the top-level struct passed to `runTUIWithOptions`; fields added here naturally thread through all recursive calls.
@@ -10,6 +11,19 @@
 - The orchestrator injects `"inProgress": true` into prd.json; always remove it (alongside setting `"passes": true`) when marking a story complete.
 - `findSubcmd()` in `cmd/chief/main.go` finds the first non-flag positional arg (skipping value-taking flags). `extractGlobalPromptsDir()` validates and returns `--prompts-dir`. Both are reusable for future subcommand routing and global flag extraction.
 
+---
+
+## 2026-03-03 - US-007
+- Added `RawTemplates() map[string]string` to `embed/embed.go` — returns all five embedded template filenames mapped to their raw (unsubstituted) content
+- Created `internal/cmd/init_prompts.go` with `InitPromptsOptions{Path string}` and `RunInitPrompts(opts)` that: defaults to `~/chief-prompts/`, resolves absolute path, calls `os.MkdirAll`, writes all five files, prints success message with path, filenames, and `chief --prompts-dir` hint
+- Added `case "init-prompts":` to `switch findSubcmd()` in `main()` in `cmd/chief/main.go`
+- Added `runInitPrompts()` in `cmd/chief/main.go` that finds the subcommand position and reads the optional path argument
+- Updated `printHelp()` to add `init-prompts [path]` under Commands and two new examples: `chief --prompts-dir ~/chief-prompts` and `chief init-prompts`
+- Files changed: `embed/embed.go`, `internal/cmd/init_prompts.go`, `cmd/chief/main.go`
+- **Learnings for future iterations:**
+  - Subcommands with hyphens (like `init-prompts`) work fine in `findSubcmd()` because they don't start with `-`.
+  - `RawTemplates()` must return copies of the embedded vars (not call `loadTemplate`) so no directory lookup is attempted — the raw embedded strings are always returned.
+  - `os.UserHomeDir()` is the right way to resolve `~` in Go rather than parsing `$HOME` directly.
 ---
 
 ## 2026-03-03 - US-006
