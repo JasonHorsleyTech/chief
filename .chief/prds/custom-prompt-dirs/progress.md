@@ -1,3 +1,13 @@
+## 2026-03-03 - US-008
+- No new code changes required — all help text was already added incrementally in US-001 (`--prompts-dir` under Global Options) and US-007 (`init-prompts` under Commands + two usage examples)
+- Verified `printHelp()` in `cmd/chief/main.go` satisfies all three content criteria: `--prompts-dir <path>` with correct description, `init-prompts [path]` with correct description, and both `chief --prompts-dir ~/chief-prompts` and `chief init-prompts` examples present
+- Confirmed `go build ./...` and `go test ./...` all pass
+- Files changed: `.chief/prds/custom-prompt-dirs/prd.json` (marks passes: true), `.chief/prds/custom-prompt-dirs/progress.md`
+- **Learnings for future iterations:**
+  - Help-text stories that follow feature stories often require no new code — check prior iteration notes before assuming work is needed.
+  - The `inProgress: true` field injected by the orchestrator must be removed (alongside setting `passes: true`) when closing a story.
+---
+
 ## Codebase Patterns
 - `embed.RawTemplates()` returns a `map[string]string` of all five embedded template filenames to their raw (unsubstituted) content — use this when writing defaults to disk (e.g. `init-prompts`), not the `Get*` functions which perform variable substitution.
 - CLI flag parsing uses a hand-rolled switch-case loop in `parseTUIFlags()` (cmd/chief/main.go), not the standard `flag` package. New flags follow the same space-separated and `=`-separated patterns.
