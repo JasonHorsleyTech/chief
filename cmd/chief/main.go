@@ -29,38 +29,89 @@ type TUIOptions struct {
 	PromptsDir    string
 }
 
-func main() {
-	// Handle subcommands first
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "new":
-			runNew()
-			return
-		case "edit":
-			runEdit()
-			return
-		case "status":
-			runStatus()
-			return
-		case "list":
-			runList()
-			return
-		case "help":
-			printHelp()
-			return
-		case "--help", "-h":
-			printHelp()
-			return
-		case "--version", "-v":
-			fmt.Printf("chief version %s\n", Version)
-			return
-		case "update":
-			runUpdate()
-			return
-		case "wiggum":
-			printWiggum()
-			return
+// findSubcmd returns the first non-flag argument in os.Args, skipping known
+// value-taking flags and their values. Returns "" if no subcommand is found.
+func findSubcmd() string {
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		// Value-taking flags: skip both the flag and its value.
+		if arg == "--prompts-dir" || arg == "--max-iterations" || arg == "-n" {
+			i++ // skip value
+			continue
 		}
+		// = form of value-taking flags: no extra value to skip.
+		if strings.HasPrefix(arg, "--prompts-dir=") ||
+			strings.HasPrefix(arg, "--max-iterations=") ||
+			strings.HasPrefix(arg, "-n=") {
+			continue
+		}
+		// Any other flag: skip (boolean flags).
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		// First non-flag argument is the subcommand or PRD name.
+		return arg
+	}
+	return ""
+}
+
+// extractGlobalPromptsDir scans os.Args for --prompts-dir and returns the
+// validated directory path. Exits with a clear message if the path is invalid.
+// Returns "" if the flag is absent.
+func extractGlobalPromptsDir() string {
+	for i := 1; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		if arg == "--prompts-dir" {
+			if i+1 < len(os.Args) {
+				dir := os.Args[i+1]
+				info, err := os.Stat(dir)
+				if err != nil || !info.IsDir() {
+					fmt.Fprintf(os.Stderr, "prompts directory not found: %s\n", dir)
+					os.Exit(1)
+				}
+				return dir
+			}
+			fmt.Fprintf(os.Stderr, "Error: --prompts-dir requires a value\n")
+			os.Exit(1)
+		}
+		if strings.HasPrefix(arg, "--prompts-dir=") {
+			dir := strings.TrimPrefix(arg, "--prompts-dir=")
+			info, err := os.Stat(dir)
+			if err != nil || !info.IsDir() {
+				fmt.Fprintf(os.Stderr, "prompts directory not found: %s\n", dir)
+				os.Exit(1)
+			}
+			return dir
+		}
+	}
+	return ""
+}
+
+func main() {
+	// Route to subcommands, skipping any leading global flags so that
+	// `chief --prompts-dir /foo new` correctly reaches runNew().
+	switch findSubcmd() {
+	case "new":
+		runNew()
+		return
+	case "edit":
+		runEdit()
+		return
+	case "status":
+		runStatus()
+		return
+	case "list":
+		runList()
+		return
+	case "help":
+		printHelp()
+		return
+	case "update":
+		runUpdate()
+		return
+	case "wiggum":
+		printWiggum()
+		return
 	}
 
 	// Non-blocking version check on startup (for interactive TUI sessions)
@@ -233,14 +284,28 @@ func parseTUIFlags() *TUIOptions {
 }
 
 func runNew() {
-	opts := cmd.NewOptions{}
-
-	// Parse arguments: chief new [name] [context...]
-	if len(os.Args) > 2 {
-		opts.Name = os.Args[2]
+	opts := cmd.NewOptions{
+		PromptsDir: extractGlobalPromptsDir(),
 	}
-	if len(os.Args) > 3 {
-		opts.Context = strings.Join(os.Args[3:], " ")
+
+	// Find position of "new" in os.Args, then parse name and context from
+	// the arguments that follow it, regardless of leading global flags.
+	newIdx := -1
+	for i := 1; i < len(os.Args); i++ {
+		if os.Args[i] == "new" {
+			newIdx = i
+			break
+		}
+	}
+	remaining := os.Args[0:0]
+	if newIdx >= 0 {
+		remaining = os.Args[newIdx+1:]
+	}
+	if len(remaining) > 0 && !strings.HasPrefix(remaining[0], "-") {
+		opts.Name = remaining[0]
+	}
+	if len(remaining) > 1 {
+		opts.Context = strings.Join(remaining[1:], " ")
 	}
 
 	if err := cmd.RunNew(opts); err != nil {
@@ -346,7 +411,8 @@ func runTUIWithOptions(opts *TUIOptions) {
 
 			// Create the PRD
 			newOpts := cmd.NewOptions{
-				Name: result.PRDName,
+				Name:       result.PRDName,
+				PromptsDir: opts.PromptsDir,
 			}
 			if err := cmd.RunNew(newOpts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -432,7 +498,8 @@ func runTUIWithOptions(opts *TUIOptions) {
 		case tui.PostExitInit:
 			// Run new command then restart TUI
 			newOpts := cmd.NewOptions{
-				Name: finalApp.PostExitPRD,
+				Name:       finalApp.PostExitPRD,
+				PromptsDir: opts.PromptsDir,
 			}
 			if err := cmd.RunNew(newOpts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)

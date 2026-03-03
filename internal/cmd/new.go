@@ -15,9 +15,10 @@ import (
 
 // NewOptions contains configuration for the new command.
 type NewOptions struct {
-	Name    string // PRD name (default: "main")
-	Context string // Optional context to pass to Claude
-	BaseDir string // Base directory for .chief/prds/ (default: current directory)
+	Name       string // PRD name (default: "main")
+	Context    string // Optional context to pass to Claude
+	BaseDir    string // Base directory for .chief/prds/ (default: current directory)
+	PromptsDir string // Optional directory for prompt overrides
 }
 
 // RunNew creates a new PRD by launching an interactive Claude session.
@@ -52,7 +53,7 @@ func RunNew(opts NewOptions) error {
 	}
 
 	// Get the init prompt with the PRD directory path
-	prompt := embed.GetInitPrompt("", prdDir, opts.Context)
+	prompt := embed.GetInitPrompt(opts.PromptsDir, prdDir, opts.Context)
 
 	// Launch interactive Claude session
 	fmt.Printf("Creating PRD in %s...\n", prdDir)
