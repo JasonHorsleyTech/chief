@@ -8,6 +8,7 @@
 - `loop.Manager` has `SetPromptsDir(string)` that must be called before any `Start` — it is captured in the `promptBuilderForPRD` closure when `Start` is called. Changing it after a loop starts has no effect on that loop.
 - `tui.App.SetPromptsDir(string)` delegates to `a.manager.SetPromptsDir` — the right place to call it is immediately after `tui.NewAppWithOptions` in `main.go`.
 - The orchestrator injects `"inProgress": true` into prd.json; always remove it (alongside setting `"passes": true`) when marking a story complete.
+- `findSubcmd()` in `cmd/chief/main.go` finds the first non-flag positional arg (skipping value-taking flags). `extractGlobalPromptsDir()` validates and returns `--prompts-dir`. Both are reusable for future subcommand routing and global flag extraction.
 
 ---
 
@@ -47,4 +48,19 @@
   - `promptBuilderForPRD` is called in `Manager.Start` — so `SetPromptsDir` must be called before the user presses play (before `Start`). Since `SetPromptsDir` is called right after app creation in `main.go`, this is always satisfied.
   - `NewLoopWithEmbeddedPrompt` (used in direct non-manager paths) now passes `""` to `promptBuilderForPRD` — if that code path ever needs prompts-dir support it will need updating.
   - `m.mu.RLock` already held when reading `m.retryConfig` in `Start`; I reused the same read-lock block to also read `m.promptsDir` — clean and race-free.
+---
+
+## 2026-03-03 - US-004
+- Added `PromptsDir string` field to `cmd.NewOptions` in `internal/cmd/new.go`
+- Changed `embed.GetInitPrompt("", ...)` to `embed.GetInitPrompt(opts.PromptsDir, ...)` in `cmd.RunNew`
+- Added `findSubcmd()` helper in `cmd/chief/main.go` that returns the first non-flag argument, skipping value-taking flags (`--prompts-dir`, `--max-iterations`, `-n`) and their values
+- Added `extractGlobalPromptsDir()` helper in `cmd/chief/main.go` that scans all args for `--prompts-dir` with validation (exits on bad path)
+- Replaced `switch os.Args[1]` routing in `main()` with `switch findSubcmd()` so `chief --prompts-dir /foo new` correctly routes to `runNew()`
+- Updated `runNew()` to call `extractGlobalPromptsDir()` and to find "new" by position in args (not always at index 1) so name/context args are parsed correctly even after global flags
+- Forwarded `opts.PromptsDir` in both the `PostExitInit` handler and the first-time setup `RunNew` call inside `runTUIWithOptions`
+- Files changed: `internal/cmd/new.go`, `cmd/chief/main.go`
+- **Learnings for future iterations:**
+  - `--help` and `--version` were previously matched in the `switch os.Args[1]` block; after moving to `findSubcmd()` (which skips `-`-prefixed args), they fall through to `parseTUIFlags()` which handles them — no special-casing needed.
+  - `runEdit()` still uses `os.Args[i]` starting from index 2; US-005 will need the same "find subcommand position" fix if `chief --prompts-dir /foo edit` should work.
+  - `extractGlobalPromptsDir()` is also used by `runNew()`; US-005 should reuse it for `runEdit()`.
 ---
