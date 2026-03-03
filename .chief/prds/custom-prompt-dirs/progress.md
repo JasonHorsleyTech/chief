@@ -50,6 +50,17 @@
   - `m.mu.RLock` already held when reading `m.retryConfig` in `Start`; I reused the same read-lock block to also read `m.promptsDir` — clean and race-free.
 ---
 
+## 2026-03-03 - US-005
+- Added `PromptsDir string` field to `cmd.EditOptions` in `internal/cmd/edit.go`
+- Changed `embed.GetEditPrompt("", prdDir)` to `embed.GetEditPrompt(opts.PromptsDir, prdDir)` in `cmd.RunEdit`
+- Refactored `runEdit()` in `cmd/chief/main.go`: added `extractGlobalPromptsDir()` call, found "edit" position in os.Args to correctly skip leading global flags, parsed name and edit-specific flags from args following "edit"
+- Forwarded `PromptsDir: opts.PromptsDir` in the `PostExitEdit` handler inside `runTUIWithOptions`
+- Files changed: `internal/cmd/edit.go`, `cmd/chief/main.go`
+- **Learnings for future iterations:**
+  - The same "find subcommand position" pattern used for `runNew()` (US-004) was reused verbatim for `runEdit()` — it's the right approach for any subcommand that can be preceded by global flags.
+  - `runEdit()` formerly started at `os.Args[2]`; starting there breaks `chief --prompts-dir /foo edit` since it would see `--prompts-dir` as an unknown flag — always find the subcommand's index first.
+---
+
 ## 2026-03-03 - US-004
 - Added `PromptsDir string` field to `cmd.NewOptions` in `internal/cmd/new.go`
 - Changed `embed.GetInitPrompt("", ...)` to `embed.GetInitPrompt(opts.PromptsDir, ...)` in `cmd.RunNew`
