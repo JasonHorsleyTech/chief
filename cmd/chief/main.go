@@ -404,6 +404,11 @@ func runTUIWithOptions(opts *TUIOptions) {
 		os.Exit(1)
 	}
 
+	// Thread PromptsDir into the manager so each iteration can load override prompts
+	if opts.PromptsDir != "" {
+		app.SetPromptsDir(opts.PromptsDir)
+	}
+
 	// Set verbose mode if requested
 	if opts.Verbose {
 		app.SetVerbose(true)

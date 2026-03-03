@@ -88,14 +88,15 @@ func NewLoopWithWorkDir(prdPath, workDir string, prompt string, maxIter int) *Lo
 // The prompt is rebuilt on each iteration to inline the current story context.
 func NewLoopWithEmbeddedPrompt(prdPath string, maxIter int) *Loop {
 	l := NewLoop(prdPath, "", maxIter)
-	l.buildPrompt = promptBuilderForPRD(prdPath)
+	l.buildPrompt = promptBuilderForPRD(prdPath, "")
 	return l
 }
 
 // promptBuilderForPRD returns a function that loads the PRD and builds a prompt
 // with the next story inlined. This is called before each iteration so that
-// newly completed stories are skipped.
-func promptBuilderForPRD(prdPath string) func() (string, error) {
+// newly completed stories are skipped. When promptsDir is non-empty, the
+// embedded prompt.txt may be overridden by the file at promptsDir/prompt.txt.
+func promptBuilderForPRD(prdPath, promptsDir string) func() (string, error) {
 	return func() (string, error) {
 		p, err := prd.LoadPRD(prdPath)
 		if err != nil {
@@ -109,7 +110,7 @@ func promptBuilderForPRD(prdPath string) func() (string, error) {
 
 		storyCtx := p.NextStoryContext()
 
-		return embed.GetPrompt("", prdPath, prd.ProgressPath(prdPath), *storyCtx, story.ID, story.Title), nil
+		return embed.GetPrompt(promptsDir, prdPath, prd.ProgressPath(prdPath), *storyCtx, story.ID, story.Title), nil
 	}
 }
 

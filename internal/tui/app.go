@@ -224,6 +224,9 @@ type App struct {
 	// Verbose mode - show raw Claude output
 	verbose bool
 
+	// PromptsDir - directory for prompt overrides (empty = use embedded defaults)
+	promptsDir string
+
 	// Post-exit action - what to do after TUI exits
 	PostExitAction PostExitAction
 	PostExitPRD    string // PRD name for post-exit action
@@ -354,6 +357,15 @@ func (a *App) SetCompletionCallback(fn func(prdName string)) {
 // SetVerbose enables or disables verbose mode (raw Claude output in log).
 func (a *App) SetVerbose(v bool) {
 	a.verbose = v
+}
+
+// SetPromptsDir sets the directory to check for prompt overrides.
+// Must be called before any loop starts (i.e. before the user presses play).
+func (a *App) SetPromptsDir(dir string) {
+	a.promptsDir = dir
+	if a.manager != nil {
+		a.manager.SetPromptsDir(dir)
+	}
 }
 
 // DisableRetry disables automatic retry on Claude crashes.

@@ -71,6 +71,7 @@ type Manager struct {
 	maxIter     int
 	retryConfig RetryConfig
 	baseDir        string                               // Project root directory (for CLAUDE.md etc.)
+	promptsDir     string                               // Directory for prompt overrides (empty = use embedded)
 	config         *config.Config                       // Project config for post-completion actions
 	mu             sync.RWMutex
 	wg             sync.WaitGroup
@@ -122,6 +123,15 @@ func (m *Manager) SetBaseDir(baseDir string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.baseDir = baseDir
+}
+
+// SetPromptsDir sets the directory to check for prompt overrides.
+// When non-empty, each loop iteration will prefer files in this directory
+// over the compiled-in embedded prompts.
+func (m *Manager) SetPromptsDir(promptsDir string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.promptsDir = promptsDir
 }
 
 // SetConfig sets the project config for post-completion actions.
@@ -231,8 +241,8 @@ func (m *Manager) Start(name string) error {
 		m.mu.RUnlock()
 	}
 	instance.Loop = NewLoopWithWorkDir(instance.PRDPath, workDir, "", m.maxIter)
-	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
 	m.mu.RLock()
+	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath, m.promptsDir)
 	instance.Loop.SetRetryConfig(m.retryConfig)
 	m.mu.RUnlock()
 	instance.ctx, instance.cancel = context.WithCancel(context.Background())
