@@ -109,6 +109,9 @@ func main() {
 	case "update":
 		runUpdate()
 		return
+	case "init-prompts":
+		runInitPrompts()
+		return
 	case "wiggum":
 		printWiggum()
 		return
@@ -383,6 +386,26 @@ func runList() {
 	}
 }
 
+func runInitPrompts() {
+	opts := cmd.InitPromptsOptions{}
+
+	// Find position of "init-prompts" in os.Args, then take the next positional
+	// argument (if any) as the target directory path.
+	for i := 1; i < len(os.Args); i++ {
+		if os.Args[i] == "init-prompts" {
+			if i+1 < len(os.Args) && !strings.HasPrefix(os.Args[i+1], "-") {
+				opts.Path = os.Args[i+1]
+			}
+			break
+		}
+	}
+
+	if err := cmd.RunInitPrompts(opts); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func runTUIWithOptions(opts *TUIOptions) {
 	prdPath := opts.PRDPath
 
@@ -554,6 +577,7 @@ Commands:
   status [name]             Show progress for a PRD (default: main)
   list                      List all PRDs with progress
   update                    Update Chief to the latest version
+  init-prompts [path]       Scaffold a prompts directory with default templates
   help                      Show this help message
 
 Global Options:
@@ -582,6 +606,8 @@ Examples:
   chief --max-iterations=5 auth
                             Launch auth PRD with 5 max iterations
   chief --verbose           Launch with raw Claude output visible
+  chief --prompts-dir ~/chief-prompts
+                            Launch using prompt overrides from ~/chief-prompts
   chief new                 Create PRD in .chief/prds/main/
   chief new auth            Create PRD in .chief/prds/auth/
   chief new auth "JWT authentication for REST API"
@@ -592,6 +618,7 @@ Examples:
   chief status              Show progress for default PRD
   chief status auth         Show progress for auth PRD
   chief list                List all PRDs with progress
+  chief init-prompts        Scaffold ~/chief-prompts/ with default templates
   chief --version           Show version number`)
 }
 

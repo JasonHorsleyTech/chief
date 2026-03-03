@@ -81,3 +81,15 @@ func GetConvertPrompt(promptsDir, prdFilePath, idPrefix string) string {
 func GetDetectSetupPrompt(promptsDir string) string {
 	return loadTemplate(promptsDir, "detect_setup_prompt.txt", detectSetupPromptTemplate)
 }
+
+// RawTemplates returns a map of filename -> raw embedded template content.
+// Use this to write the default templates to a prompts directory.
+func RawTemplates() map[string]string {
+	return map[string]string{
+		"prompt.txt":              promptTemplate,
+		"init_prompt.txt":         initPromptTemplate,
+		"edit_prompt.txt":         editPromptTemplate,
+		"convert_prompt.txt":      convertPromptTemplate,
+		"detect_setup_prompt.txt": detectSetupPromptTemplate,
+	}
+}
