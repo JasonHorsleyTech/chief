@@ -26,6 +26,7 @@ type TUIOptions struct {
 	Merge         bool
 	Force         bool
 	NoRetry       bool
+	PromptsDir    string
 }
 
 func main() {
@@ -127,6 +128,7 @@ func parseTUIFlags() *TUIOptions {
 		Merge:         false,
 		Force:         false,
 		NoRetry:       false,
+		PromptsDir:    "",
 	}
 
 	for i := 1; i < len(os.Args); i++ {
@@ -147,6 +149,28 @@ func parseTUIFlags() *TUIOptions {
 			opts.Force = true
 		case arg == "--no-retry":
 			opts.NoRetry = true
+		case arg == "--prompts-dir":
+			if i+1 < len(os.Args) {
+				i++
+				dir := os.Args[i]
+				info, err := os.Stat(dir)
+				if err != nil || !info.IsDir() {
+					fmt.Fprintf(os.Stderr, "prompts directory not found: %s\n", dir)
+					os.Exit(1)
+				}
+				opts.PromptsDir = dir
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: --prompts-dir requires a value\n")
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--prompts-dir="):
+			dir := strings.TrimPrefix(arg, "--prompts-dir=")
+			info, err := os.Stat(dir)
+			if err != nil || !info.IsDir() {
+				fmt.Fprintf(os.Stderr, "prompts directory not found: %s\n", dir)
+				os.Exit(1)
+			}
+			opts.PromptsDir = dir
 		case arg == "--max-iterations" || arg == "-n":
 			// Next argument should be the number
 			if i+1 < len(os.Args) {
@@ -447,6 +471,7 @@ Commands:
   help                      Show this help message
 
 Global Options:
+  --prompts-dir <path>      Load prompt overrides from directory (hard-fails if path is invalid)
   --max-iterations N, -n N  Set maximum iterations (default: dynamic)
   --no-retry                Disable auto-retry on Claude crashes
   --verbose                 Show raw Claude output in log
