@@ -200,7 +200,7 @@ func Convert(opts ConvertOptions) error {
 // The idPrefix determines the story ID convention (e.g., "US" → US-001, "MFR" → MFR-001).
 func runClaudeConversion(absPRDDir, idPrefix string) (string, error) {
 	prdMdPath := filepath.Join(absPRDDir, "prd.md")
-	prompt := embed.GetConvertPrompt(prdMdPath, idPrefix)
+	prompt := embed.GetConvertPrompt("", prdMdPath, idPrefix)
 
 	cmd := exec.Command("claude", "-p")
 	cmd.Dir = absPRDDir

@@ -52,7 +52,7 @@ func RunNew(opts NewOptions) error {
 	}
 
 	// Get the init prompt with the PRD directory path
-	prompt := embed.GetInitPrompt(prdDir, opts.Context)
+	prompt := embed.GetInitPrompt("", prdDir, opts.Context)
 
 	// Launch interactive Claude session
 	fmt.Printf("Creating PRD in %s...\n", prdDir)

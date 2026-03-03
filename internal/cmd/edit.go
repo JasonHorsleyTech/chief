@@ -45,7 +45,7 @@ func RunEdit(opts EditOptions) error {
 	}
 
 	// Get the edit prompt with the PRD directory path
-	prompt := embed.GetEditPrompt(prdDir)
+	prompt := embed.GetEditPrompt("", prdDir)
 
 	// Launch interactive Claude session
 	fmt.Printf("Editing PRD at %s...\n", prdDir)
