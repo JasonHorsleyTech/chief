@@ -75,7 +75,7 @@ func RunNew(opts NewOptions) error {
 	fmt.Println("\nPRD created successfully!")
 
 	// Run conversion from prd.md to prd.json
-	if err := RunConvert(prdDir); err != nil {
+	if err := RunConvertWithOptions(ConvertOptions{PRDDir: prdDir, PromptsDir: opts.PromptsDir}); err != nil {
 		return fmt.Errorf("conversion failed: %w", err)
 	}
 
@@ -97,9 +97,10 @@ func runInteractiveClaude(workDir, prompt string) error {
 
 // ConvertOptions contains configuration for the conversion command.
 type ConvertOptions struct {
-	PRDDir string // PRD directory containing prd.md
-	Merge  bool   // Auto-merge without prompting on conversion conflicts
-	Force  bool   // Auto-overwrite without prompting on conversion conflicts
+	PRDDir     string // PRD directory containing prd.md
+	Merge      bool   // Auto-merge without prompting on conversion conflicts
+	Force      bool   // Auto-overwrite without prompting on conversion conflicts
+	PromptsDir string // Optional directory for prompt overrides
 }
 
 // RunConvert converts prd.md to prd.json using Claude.
@@ -111,9 +112,10 @@ func RunConvert(prdDir string) error {
 // The Merge and Force flags will be fully implemented in US-019.
 func RunConvertWithOptions(opts ConvertOptions) error {
 	return prd.Convert(prd.ConvertOptions{
-		PRDDir: opts.PRDDir,
-		Merge:  opts.Merge,
-		Force:  opts.Force,
+		PRDDir:     opts.PRDDir,
+		Merge:      opts.Merge,
+		Force:      opts.Force,
+		PromptsDir: opts.PromptsDir,
 	})
 }
 

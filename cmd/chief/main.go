@@ -447,9 +447,10 @@ func runTUIWithOptions(opts *TUIOptions) {
 	} else if needsConvert {
 		fmt.Println("prd.md is newer than prd.json, running conversion...")
 		convertOpts := prd.ConvertOptions{
-			PRDDir: prdDir,
-			Merge:  opts.Merge,
-			Force:  opts.Force,
+			PRDDir:     prdDir,
+			Merge:      opts.Merge,
+			Force:      opts.Force,
+			PromptsDir: opts.PromptsDir,
 		}
 		if err := prd.Convert(convertOpts); err != nil {
 			fmt.Printf("Error converting PRD: %v\n", err)

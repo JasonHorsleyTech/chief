@@ -55,9 +55,10 @@ var waitingJokes = []string{
 
 // ConvertOptions contains configuration for PRD conversion.
 type ConvertOptions struct {
-	PRDDir string // Directory containing prd.md
-	Merge  bool   // Auto-merge progress on conversion conflicts
-	Force  bool   // Auto-overwrite on conversion conflicts
+	PRDDir     string // Directory containing prd.md
+	Merge      bool   // Auto-merge progress on conversion conflicts
+	Force      bool   // Auto-overwrite on conversion conflicts
+	PromptsDir string // Optional directory for prompt overrides
 }
 
 // ProgressConflictChoice represents the user's choice when a progress conflict is detected.
@@ -111,7 +112,7 @@ func Convert(opts ConvertOptions) error {
 	}
 
 	// Run Claude to convert prd.md → JSON string
-	rawJSON, err := runClaudeConversion(absPRDDir, idPrefix)
+	rawJSON, err := runClaudeConversion(absPRDDir, idPrefix, opts.PromptsDir)
 	if err != nil {
 		return err
 	}
@@ -198,9 +199,9 @@ func Convert(opts ConvertOptions) error {
 // runClaudeConversion sends the PRD file path to Claude and returns the JSON output.
 // Claude reads prd.md itself using file-reading tools, avoiding token limits for large PRDs.
 // The idPrefix determines the story ID convention (e.g., "US" → US-001, "MFR" → MFR-001).
-func runClaudeConversion(absPRDDir, idPrefix string) (string, error) {
+func runClaudeConversion(absPRDDir, idPrefix, promptsDir string) (string, error) {
 	prdMdPath := filepath.Join(absPRDDir, "prd.md")
-	prompt := embed.GetConvertPrompt("", prdMdPath, idPrefix)
+	prompt := embed.GetConvertPrompt(promptsDir, prdMdPath, idPrefix)
 
 	cmd := exec.Command("claude", "-p")
 	cmd.Dir = absPRDDir
