@@ -10,10 +10,11 @@ import (
 
 // EditOptions contains configuration for the edit command.
 type EditOptions struct {
-	Name    string // PRD name (default: "main")
-	BaseDir string // Base directory for .chief/prds/ (default: current directory)
-	Merge   bool   // Auto-merge without prompting on conversion conflicts
-	Force   bool   // Auto-overwrite without prompting on conversion conflicts
+	Name       string // PRD name (default: "main")
+	BaseDir    string // Base directory for .chief/prds/ (default: current directory)
+	Merge      bool   // Auto-merge without prompting on conversion conflicts
+	Force      bool   // Auto-overwrite without prompting on conversion conflicts
+	PromptsDir string // Optional directory for prompt overrides
 }
 
 // RunEdit edits an existing PRD by launching an interactive Claude session.
@@ -45,7 +46,7 @@ func RunEdit(opts EditOptions) error {
 	}
 
 	// Get the edit prompt with the PRD directory path
-	prompt := embed.GetEditPrompt("", prdDir)
+	prompt := embed.GetEditPrompt(opts.PromptsDir, prdDir)
 
 	// Launch interactive Claude session
 	fmt.Printf("Editing PRD at %s...\n", prdDir)

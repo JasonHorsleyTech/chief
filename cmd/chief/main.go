@@ -315,18 +315,30 @@ func runNew() {
 }
 
 func runEdit() {
-	opts := cmd.EditOptions{}
+	opts := cmd.EditOptions{
+		PromptsDir: extractGlobalPromptsDir(),
+	}
 
-	// Parse arguments: chief edit [name] [--merge] [--force]
-	for i := 2; i < len(os.Args); i++ {
-		arg := os.Args[i]
+	// Find position of "edit" in os.Args, then parse name and flags from
+	// the arguments that follow it, regardless of leading global flags.
+	editIdx := -1
+	for i := 1; i < len(os.Args); i++ {
+		if os.Args[i] == "edit" {
+			editIdx = i
+			break
+		}
+	}
+	remaining := os.Args[0:0]
+	if editIdx >= 0 {
+		remaining = os.Args[editIdx+1:]
+	}
+	for _, arg := range remaining {
 		switch arg {
 		case "--merge":
 			opts.Merge = true
 		case "--force":
 			opts.Force = true
 		default:
-			// If not a flag, treat as PRD name (first non-flag arg)
 			if opts.Name == "" && !strings.HasPrefix(arg, "-") {
 				opts.Name = arg
 			}
@@ -512,9 +524,10 @@ func runTUIWithOptions(opts *TUIOptions) {
 		case tui.PostExitEdit:
 			// Run edit command then restart TUI
 			editOpts := cmd.EditOptions{
-				Name:  finalApp.PostExitPRD,
-				Merge: opts.Merge,
-				Force: opts.Force,
+				Name:       finalApp.PostExitPRD,
+				Merge:      opts.Merge,
+				Force:      opts.Force,
+				PromptsDir: opts.PromptsDir,
 			}
 			if err := cmd.RunEdit(editOpts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
