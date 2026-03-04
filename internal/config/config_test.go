@@ -17,6 +17,9 @@ func TestDefault(t *testing.T) {
 	if cfg.OnComplete.CreatePR {
 		t.Error("expected CreatePR to be false")
 	}
+	if cfg.FrontPressure.Enabled {
+		t.Error("expected FrontPressure.Enabled to be false")
+	}
 }
 
 func TestLoadNonExistent(t *testing.T) {
@@ -59,6 +62,51 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 	if !loaded.OnComplete.CreatePR {
 		t.Error("expected CreatePR to be true")
+	}
+}
+
+func TestFrontPressureMarshalUnmarshal(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg := &Config{
+		FrontPressure: FrontPressureConfig{
+			Enabled: true,
+		},
+	}
+
+	if err := Save(dir, cfg); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if !loaded.FrontPressure.Enabled {
+		t.Error("expected FrontPressure.Enabled to be true after round-trip")
+	}
+}
+
+func TestFrontPressureDefaultsToFalse(t *testing.T) {
+	dir := t.TempDir()
+
+	// Save a config without frontPressure field
+	chiefDir := dir + "/.chief"
+	if err := os.MkdirAll(chiefDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(chiefDir+"/config.yaml", []byte("worktree:\n  setup: \"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if loaded.FrontPressure.Enabled {
+		t.Error("expected FrontPressure.Enabled to be false when not set in YAML")
 	}
 }
 

@@ -11,8 +11,9 @@ const configFile = ".chief/config.yaml"
 
 // Config holds project-level settings for Chief.
 type Config struct {
-	Worktree   WorktreeConfig   `yaml:"worktree"`
-	OnComplete OnCompleteConfig `yaml:"onComplete"`
+	Worktree      WorktreeConfig      `yaml:"worktree"`
+	OnComplete    OnCompleteConfig    `yaml:"onComplete"`
+	FrontPressure FrontPressureConfig `yaml:"frontPressure"`
 }
 
 // WorktreeConfig holds worktree-related settings.
@@ -24,6 +25,11 @@ type WorktreeConfig struct {
 type OnCompleteConfig struct {
 	Push     bool `yaml:"push"`
 	CreatePR bool `yaml:"createPR"`
+}
+
+// FrontPressureConfig holds front pressure settings.
+type FrontPressureConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 // Default returns a Config with zero-value defaults.
