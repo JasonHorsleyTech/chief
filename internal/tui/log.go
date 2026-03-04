@@ -77,7 +77,7 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 	switch event.Type {
 	case loop.EventAssistantText, loop.EventToolStart, loop.EventToolResult,
 		loop.EventStoryStarted, loop.EventComplete, loop.EventError, loop.EventRetrying,
-		loop.EventWatchdogTimeout:
+		loop.EventWatchdogTimeout, loop.EventFrontPressure, loop.EventFrontPressureResolved:
 		// Pre-render and cache lines
 		if l.width > 0 {
 			entry.cachedLines = l.renderEntry(entry)
@@ -364,6 +364,10 @@ func (l *LogViewer) renderEntry(entry LogEntry) []string {
 		return l.renderRetrying(entry)
 	case loop.EventWatchdogTimeout:
 		return l.renderWatchdogTimeout(entry)
+	case loop.EventFrontPressure:
+		return l.renderFrontPressure(entry)
+	case loop.EventFrontPressureResolved:
+		return l.renderFrontPressureResolved(entry)
 	default:
 		return l.renderText(entry)
 	}
@@ -631,4 +635,27 @@ func (l *LogViewer) renderWatchdogTimeout(entry LogEntry) []string {
 	}
 
 	return []string{style.Render("⏱ " + text)}
+}
+
+// renderFrontPressure renders a front pressure concern entry.
+func (l *LogViewer) renderFrontPressure(entry LogEntry) []string {
+	style := lipgloss.NewStyle().
+		Foreground(WarningColor).
+		Bold(true)
+
+	text := entry.Text
+	if len(text) > 80 {
+		text = text[:77] + "..."
+	}
+
+	return []string{style.Render("⚡ Front pressure: " + text)}
+}
+
+// renderFrontPressureResolved renders a front pressure resolved entry.
+func (l *LogViewer) renderFrontPressureResolved(entry LogEntry) []string {
+	style := lipgloss.NewStyle().
+		Foreground(SuccessColor).
+		Bold(true)
+
+	return []string{style.Render("✓ Front pressure resolved: " + entry.Text)}
 }

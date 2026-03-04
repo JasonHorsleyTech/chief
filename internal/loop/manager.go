@@ -234,7 +234,11 @@ func (m *Manager) Start(name string) error {
 	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath)
 	m.mu.RLock()
 	instance.Loop.SetRetryConfig(m.retryConfig)
+	fpEnabled := m.config != nil && m.config.FrontPressure.Enabled
 	m.mu.RUnlock()
+	if fpEnabled {
+		instance.Loop.SetFrontPressure(true, NewFrontPressureEditor())
+	}
 	instance.ctx, instance.cancel = context.WithCancel(context.Background())
 	instance.State = LoopStateRunning
 	instance.StartTime = time.Now()

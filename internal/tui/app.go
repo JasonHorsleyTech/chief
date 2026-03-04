@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/minicodemonkey/chief/internal/config"
 	"github.com/minicodemonkey/chief/internal/git"
 	"github.com/minicodemonkey/chief/internal/loop"
@@ -36,6 +37,7 @@ const (
 	StateStopped
 	StateComplete
 	StateError
+	StateFrontPressure
 )
 
 func (s AppState) String() string {
@@ -52,6 +54,8 @@ func (s AppState) String() string {
 		return "Complete"
 	case StateError:
 		return "Error"
+	case StateFrontPressure:
+		return "FrontPressure"
 	default:
 		return "Unknown"
 	}
@@ -147,6 +151,7 @@ const (
 	ViewCompletion
 	ViewSettings
 	ViewQuitConfirm
+	ViewFrontPressureScrap
 )
 
 // App is the main Bubble Tea model for the Chief TUI.
@@ -908,6 +913,47 @@ func (a *App) renderQuitConfirmView() string {
 	return a.quitConfirm.Render()
 }
 
+// renderFrontPressureScrapView renders the front pressure scrap screen.
+func (a *App) renderFrontPressureScrapView() string {
+	titleStyle := lipgloss.NewStyle().
+		Foreground(WarningColor).
+		Bold(true).
+		Padding(0, 1)
+
+	bodyStyle := lipgloss.NewStyle().
+		Foreground(TextColor).
+		Padding(0, 1)
+
+	hintStyle := lipgloss.NewStyle().
+		Foreground(MutedColor).
+		Padding(0, 1)
+
+	dividerStyle := lipgloss.NewStyle().Foreground(WarningColor)
+	divider := dividerStyle.Render(strings.Repeat("═", 50))
+
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(WarningColor).
+		Padding(1, 3).
+		Width(56)
+
+	content := strings.Join([]string{
+		titleStyle.Render("⚡ Front pressure: scrap and restart"),
+		divider,
+		"",
+		bodyStyle.Render("The agent found a fundamental problem with the plan."),
+		bodyStyle.Render("Continuing would build on a wrong foundation."),
+		"",
+		hintStyle.Render("Review the PRD, address the agent's concern,"),
+		hintStyle.Render("and rewrite the plan before running Chief again."),
+		"",
+		hintStyle.Render("Press q to quit."),
+	}, "\n")
+
+	box := boxStyle.Render(content)
+	return centerModal(box, a.width, a.height)
+}
+
 // handleLoopEvent handles events from the manager.
 func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.Cmd) {
 	// Only update iteration and log if this is the currently viewed PRD
@@ -987,6 +1033,24 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	case loop.EventWatchdogTimeout:
 		if isCurrentPRD {
 			a.lastActivity = event.Text
+		}
+	case loop.EventFrontPressure:
+		if isCurrentPRD {
+			text := event.Text
+			if len(text) > 80 {
+				text = text[:77] + "..."
+			}
+			a.lastActivity = "⚡ Front pressure: " + text
+		}
+	case loop.EventFrontPressureResolved:
+		if isCurrentPRD {
+			a.lastActivity = "✓ Front pressure resolved: " + event.Text
+		}
+	case loop.EventFrontPressureScrap:
+		if isCurrentPRD {
+			a.state = StateFrontPressure
+			a.lastActivity = "Front pressure: scrap and restart"
+			a.viewMode = ViewFrontPressureScrap
 		}
 	}
 
@@ -1078,6 +1142,8 @@ func (a App) View() string {
 		return a.renderSettingsView()
 	case ViewQuitConfirm:
 		return a.renderQuitConfirmView()
+	case ViewFrontPressureScrap:
+		return a.renderFrontPressureScrapView()
 	default:
 		return a.renderDashboard()
 	}
