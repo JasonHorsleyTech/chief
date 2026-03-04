@@ -21,6 +21,7 @@ func TestEventTypeString(t *testing.T) {
 		{EventError, "Error"},
 		{EventRetrying, "Retrying"},
 		{EventWatchdogTimeout, "WatchdogTimeout"},
+		{EventFrontPressure, "FrontPressure"},
 	}
 
 	for _, tt := range tests {
@@ -304,5 +305,63 @@ func TestParseLineToolUseFirst(t *testing.T) {
 	}
 	if event.Tool != "Write" {
 		t.Errorf("event.Tool = %q, want %q", event.Tool, "Write")
+	}
+}
+
+func TestParseLineFrontPressurePresent(t *testing.T) {
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"I found a problem.\n<front-pressure>The data model in stories 8-12 is wrong.</front-pressure>"}]}}`
+
+	event := ParseLine(line)
+	if event == nil {
+		t.Fatal("ParseLine returned nil, want event")
+	}
+	if event.Type != EventFrontPressure {
+		t.Errorf("event.Type = %v, want EventFrontPressure", event.Type)
+	}
+	if event.Text != "The data model in stories 8-12 is wrong." {
+		t.Errorf("event.Text = %q, want %q", event.Text, "The data model in stories 8-12 is wrong.")
+	}
+}
+
+func TestParseLineFrontPressureAbsent(t *testing.T) {
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"Everything looks fine, proceeding with implementation."}]}}`
+
+	event := ParseLine(line)
+	if event == nil {
+		t.Fatal("ParseLine returned nil, want event")
+	}
+	if event.Type != EventAssistantText {
+		t.Errorf("event.Type = %v, want EventAssistantText (no front pressure tag)", event.Type)
+	}
+}
+
+func TestParseLineFrontPressureMalformed(t *testing.T) {
+	// No closing tag — should not emit EventFrontPressure
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"Something wrong <front-pressure>no closing tag here"}]}}`
+
+	event := ParseLine(line)
+	if event == nil {
+		t.Fatal("ParseLine returned nil, want event")
+	}
+	if event.Type != EventAssistantText {
+		t.Errorf("event.Type = %v, want EventAssistantText for malformed front-pressure tag", event.Type)
+	}
+}
+
+func TestParseLineFrontPressureMultiline(t *testing.T) {
+	// Multiline concern text — in stream-json, newlines are encoded as \n
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"<front-pressure>The authentication model assumes session tokens,\nbut the specified DB schema uses JWT-only.\nThis breaks stories 5 through 9.</front-pressure>"}]}}`
+
+	expectedConcern := "The authentication model assumes session tokens,\nbut the specified DB schema uses JWT-only.\nThis breaks stories 5 through 9."
+
+	event := ParseLine(line)
+	if event == nil {
+		t.Fatal("ParseLine returned nil, want event")
+	}
+	if event.Type != EventFrontPressure {
+		t.Errorf("event.Type = %v, want EventFrontPressure", event.Type)
+	}
+	if event.Text != expectedConcern {
+		t.Errorf("event.Text = %q, want %q", event.Text, expectedConcern)
 	}
 }

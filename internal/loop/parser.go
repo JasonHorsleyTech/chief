@@ -33,6 +33,8 @@ const (
 	EventRetrying
 	// EventWatchdogTimeout is emitted when the watchdog kills a hung process.
 	EventWatchdogTimeout
+	// EventFrontPressure is emitted when an agent raises a front pressure concern.
+	EventFrontPressure
 )
 
 // String returns the string representation of an EventType.
@@ -60,6 +62,8 @@ func (e EventType) String() string {
 		return "Retrying"
 	case EventWatchdogTimeout:
 		return "WatchdogTimeout"
+	case EventFrontPressure:
+		return "FrontPressure"
 	default:
 		return "Unknown"
 	}
@@ -170,6 +174,13 @@ func parseAssistantMessage(raw json.RawMessage) *Event {
 				return &Event{
 					Type: EventComplete,
 					Text: text,
+				}
+			}
+			// Check for <front-pressure>...</front-pressure> tag
+			if concern := extractStoryID(text, "<front-pressure>", "</front-pressure>"); concern != "" {
+				return &Event{
+					Type: EventFrontPressure,
+					Text: concern,
 				}
 			}
 			// Check for story markers using ralph-status tags
