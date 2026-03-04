@@ -1,0 +1,159 @@
+{
+  "project": "Front Pressure",
+  "description": "Chief's ticket agents currently have no mechanism to surface plan-level problems discovered during implementation. When an agent at story 7 of 20 discovers that stories 8–12 are predicated on a data model that's completely wrong, it either pushes through (producing correct code implementing the wrong thing) or fails repeatedly until the watchdog kills it. Either way, the unattended overnight run is derailed. Front Pressure gives agents a voice. When an agent believes it has found a PRD-level problem — not a failing test, but a fundamental assumption that turns out to be wrong — it can raise a concern. That concern routes to an automated \"editor loop\" that reads the PRD, considers the concern, and makes a decision: edit downstream tickets, dismiss the concern on this story, or scrap and restart. The run then continues with a corrected plan.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add front pressure config option",
+      "description": "As a developer, I need `frontPressure.enabled` in `.chief/config.yaml` so Chief knows whether to activate front pressure mode.",
+      "acceptanceCriteria": [
+        "Config struct in internal/config/config.go has FrontPressure FrontPressureConfig field",
+        "FrontPressureConfig has Enabled bool field",
+        "Field serializes to/from YAML as frontPressure.enabled",
+        "config_test.go covers marshal/unmarshal of the new field",
+        "go test ./internal/config/... passes"
+      ],
+      "priority": 1,
+      "passes": true
+    },
+    {
+      "id": "US-002",
+      "title": "Extend UserStory type with dismissed concerns",
+      "description": "As the system, I need to store per-story dismissed concerns in prd.json so agents don't re-raise concerns the editor has already reviewed.",
+      "acceptanceCriteria": [
+        "UserStory in internal/prd/types.go has DismissedConcerns []string field tagged json:\"dismissedConcerns,omitempty\"",
+        "Existing PRDs without the field deserialize correctly (empty slice, no error)",
+        "prd_test.go covers a round-trip serialize/deserialize including the new field",
+        "go test ./internal/prd/... passes"
+      ],
+      "priority": 2,
+      "passes": true
+    },
+    {
+      "id": "US-003",
+      "title": "Add front pressure event to parser",
+      "description": "As the loop, I need to detect \u003cfront-pressure\u003e...\u003c/front-pressure\u003e tags in Claude's stream-json output so I know when an agent has raised a concern.",
+      "acceptanceCriteria": [
+        "New EventFrontPressure constant added to EventType in internal/loop/parser.go",
+        "EventFrontPressure has a human-readable String() return value of \"FrontPressure\"",
+        "ParseLine() detects \u003cfront-pressure\u003e...\u003c/front-pressure\u003e in assistant text blocks and returns Event{Type: EventFrontPressure, Text: \u003cconcern text\u003e}",
+        "If no \u003cfront-pressure\u003e tag is present, behavior is unchanged",
+        "parser_test.go covers: tag present, tag absent, malformed (no closing tag), multiline concern text",
+        "go test ./internal/loop/... passes"
+      ],
+      "priority": 3,
+      "passes": true
+    },
+    {
+      "id": "US-004",
+      "title": "Update agent prompt with conditional front pressure instructions",
+      "description": "As a ticket agent running in front pressure mode, I need instructions on when to raise a concern and how to format it, so I use the mechanism correctly.",
+      "acceptanceCriteria": [
+        "embed/embed.go GetPrompt() signature is extended to accept frontPressureEnabled bool and dismissedConcerns []string",
+        "When frontPressureEnabled=true, the rendered prompt includes a \"## Front Pressure\" section that explains: only raise for plan-level problems (not code errors), use the \u003cfront-pressure\u003e...\u003c/front-pressure\u003e tag, include one clear sentence describing what is wrong and why it affects the plan",
+        "When frontPressureEnabled=true and dismissedConcerns is non-empty, the prompt includes a \"## Previously Dismissed Concerns\" section listing them, instructing the agent NOT to re-raise them",
+        "When frontPressureEnabled=false, the prompt is identical to the current output (no regression)",
+        "embed_test.go covers: fp disabled (no new section), fp enabled (section present), fp enabled with dismissed concerns (dismissed section present)",
+        "All callers of GetPrompt() updated to pass the new parameters",
+        "go test ./embed/... passes"
+      ],
+      "priority": 4,
+      "passes": false
+    },
+    {
+      "id": "US-005",
+      "title": "Create editor prompt template",
+      "description": "As the editor loop, I need a prompt that instructs Claude to act as an automated engineering manager reviewing a PRD-level concern, so it produces a structured decision.",
+      "acceptanceCriteria": [
+        "New file embed/fp_editor_prompt.txt created with template variables {{PRD_PATH}}, {{STORY_ID}}, {{CONCERN_TEXT}}, {{DISMISSED_CONCERNS}}",
+        "Prompt instructs the editor to: read the PRD JSON, consider whether the concern is valid, then make one of three decisions",
+        "Decision edit: editor directly modifies the PRD JSON (adjusts or removes downstream stories), then outputs \u003cfp-decision\u003eedit\u003c/fp-decision\u003e",
+        "Decision dismiss: editor adds the concern text to dismissedConcerns on the story in PRD JSON, then outputs \u003cfp-decision\u003edismiss\u003c/fp-decision\u003e",
+        "Decision scrap: editor outputs \u003cfp-decision\u003escrap\u003c/fp-decision\u003e with a brief explanation in a preceding text block",
+        "Prompt includes guidance: prefer dismiss for concerns about implementation details, prefer edit for genuine plan-level issues, use scrap only when foundational assumptions are wrong",
+        "embed/embed.go has a GetFPEditorPrompt(prdPath, storyID, concern, dismissedConcerns string) string function",
+        "embed_test.go covers GetFPEditorPrompt() substitution",
+        "go test ./embed/... passes"
+      ],
+      "priority": 5,
+      "passes": false
+    },
+    {
+      "id": "US-006",
+      "title": "Build FrontPressureEditor",
+      "description": "As the loop, I need a FrontPressureEditor that runs a Claude session to review a concern and returns a structured decision, so the loop knows how to proceed.",
+      "acceptanceCriteria": [
+        "New file internal/loop/fp_editor.go with FrontPressureEditor struct",
+        "FrontPressureEditor has field ClaudeRunner func(ctx context.Context, prompt, workDir string) (string, error) that defaults to running claude --dangerously-skip-permissions -p \u003cprompt\u003e --output-format stream-json and collecting all assistant text",
+        "FPDecision type is an enum: FPDecisionEdit, FPDecisionDismiss, FPDecisionScrap",
+        "FrontPressureEditor.Review(ctx, prdPath, storyID, concern, dismissedConcerns, workDir string) (FPDecision, error) runs the editor and parses \u003cfp-decision\u003e from output",
+        "If no \u003cfp-decision\u003e tag is found in the output, returns FPDecisionDismiss as a safe default (avoids blocking the loop)",
+        "fp_editor_test.go covers: edit decision, dismiss decision, scrap decision, no decision tag (defaults to dismiss)",
+        "All tests use fake ClaudeRunner (no live Claude)",
+        "go test ./internal/loop/... passes"
+      ],
+      "priority": 6,
+      "passes": false
+    },
+    {
+      "id": "US-007",
+      "title": "Integrate front pressure into the loop",
+      "description": "As the loop, I need to intercept EventFrontPressure events and run the editor before continuing, so the PRD is corrected before downstream stories are built on a wrong foundation.",
+      "acceptanceCriteria": [
+        "Loop struct has frontPressureEnabled bool and frontPressureEditor *FrontPressureEditor fields",
+        "Loop has SetFrontPressure(enabled bool, editor *FrontPressureEditor) method",
+        "In processOutput(), when EventFrontPressure is seen AND frontPressureEnabled=true: store the concern text on the loop and emit the event",
+        "After runIteration() returns (not during streaming), if a front pressure concern was captured: call frontPressureEditor.Review() with the concern, story ID, dismissed concerns from PRD, and work dir",
+        "On FPDecisionEdit: emit EventFrontPressureResolved with text \"Editor updated PRD\", clear the stored concern, continue loop normally",
+        "On FPDecisionDismiss: emit EventFrontPressureResolved with text \"Concern dismissed\", clear the stored concern, continue loop normally",
+        "On FPDecisionScrap: emit EventFrontPressureScrap, stop the loop (set stopped=true)",
+        "When frontPressureEnabled=false (default), EventFrontPressure events are still emitted to the channel but the loop does NOT pause or run the editor (standard mode is unchanged)",
+        "loop_test.go covers: fp disabled (concern event emitted, loop continues), fp enabled + edit decision, fp enabled + dismiss decision, fp enabled + scrap decision",
+        "go test ./internal/loop/... passes"
+      ],
+      "priority": 7,
+      "passes": false
+    },
+    {
+      "id": "US-008",
+      "title": "Wire front pressure through Manager and TUI",
+      "description": "As the TUI, I need to show front pressure activity in the log and handle the scrap state, so the user knows what's happening during an unattended run.",
+      "acceptanceCriteria": [
+        "Manager.Start() checks m.config.FrontPressure.Enabled and calls instance.Loop.SetFrontPressure() if enabled",
+        "New AppState: StateFrontPressure added to the enum in internal/tui/app.go",
+        "When EventFrontPressure is received in the TUI event handler, a log entry is added: \"⚡ Front pressure: \u003cconcern text truncated to 80 chars\u003e\" in yellow",
+        "When EventFrontPressureResolved is received, a log entry is added: \"✓ Front pressure resolved: \u003cresolution text\u003e\" in green",
+        "When EventFrontPressureScrap is received, the TUI transitions to a new completion-like screen showing: \"Front pressure: scrap and restart\", a brief explanation, and a hint to review and rewrite the PRD",
+        "go test ./internal/tui/... passes (existing tests not broken)",
+        "go build ./... passes"
+      ],
+      "priority": 8,
+      "passes": false
+    },
+    {
+      "id": "US-009",
+      "title": "Unit tests for parser and PRD type changes",
+      "description": "As a developer, I want comprehensive unit tests for the new parser behavior and PRD type changes, so I can confidently make changes without running Chief against a real project.",
+      "acceptanceCriteria": [
+        "parser_test.go has tests for EventFrontPressure: tag at start of text, tag at end, tag mid-text, concern with newlines (multi-sentence), tag with no closing tag (no event emitted), standard events still parse correctly after adding new event type",
+        "prd_test.go has tests for DismissedConcerns: empty slice omitted from JSON, non-empty slice round-trips correctly, loading a legacy PRD without the field gives empty slice (no error)",
+        "go test ./internal/loop/... ./internal/prd/... passes with -race flag",
+        "No test requires a live Claude process"
+      ],
+      "priority": 9,
+      "passes": false
+    },
+    {
+      "id": "US-010",
+      "title": "Integration test for full front pressure flow",
+      "description": "As a developer, I want an integration test that exercises the complete front pressure flow end-to-end (concern raised → editor runs → decision applied → loop continues), so I can validate the whole system works together.",
+      "acceptanceCriteria": [
+        "loop_test.go has a TestFrontPressureFullFlow test that: creates a temporary PRD JSON with two stories, uses a fake Claude runner that emits \u003cfront-pressure\u003econcern text\u003c/front-pressure\u003e for the first story, uses a fake editor runner that emits \u003cfp-decision\u003edismiss\u003c/fp-decision\u003e, verifies EventFrontPressure event was emitted, verifies EventFrontPressureResolved was emitted, verifies the concern text appears in DismissedConcerns on the story in prd.json, verifies the loop continues (does not stop after dismissal)",
+        "A second test TestFrontPressureScrap verifies the scrap path: fake editor returns \u003cfp-decision\u003escrap\u003c/fp-decision\u003e, loop stops, EventFrontPressureScrap is emitted",
+        "go test ./internal/loop/... -run TestFrontPressure -v passes"
+      ],
+      "priority": 10,
+      "passes": false
+    }
+  ]
+}
