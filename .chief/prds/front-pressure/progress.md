@@ -111,6 +111,18 @@
   - `go test ./internal/loop/... ./internal/prd/... -race` is the required command to verify US-009; without `-race`, race conditions go undetected
 ---
 
+## 2026-03-04 - US-010
+- What was implemented: Added `TestFrontPressureFullFlow` and `TestFrontPressureScrap` integration tests to `loop_test.go`. Also modified `handleFrontPressure()` in `loop.go` to persist the dismissed concern to `DismissedConcerns` in `prd.json` on a dismiss decision, enabling the integration test to verify persistence.
+- Files changed:
+  - `internal/loop/loop.go` - `handleFrontPressure()` now saves the dismissed concern to prd.json on `FPDecisionDismiss`
+  - `internal/loop/loop_test.go` - added `TestFrontPressureFullFlow` (two-story PRD, dismiss path, verifies event emission, prd.json persistence, and loop continues) and `TestFrontPressureScrap` (scrap path, verifies event and loop stop)
+- **Learnings for future iterations:**
+  - Integration tests for `handleFrontPressure` don't need `Run()` — directly call `l.processOutput(r)` then `l.handleFrontPressure(ctx)` to exercise the full decision flow
+  - The dismiss path in `handleFrontPressure()` now writes to prd.json via `prd.LoadPRD` + `p.Save()` — this is the belt-and-suspenders approach since the real editor is also supposed to update prd.json
+  - When verifying prd.json changes in tests, reload the PRD with `prd.LoadPRD(prdPath)` after the operation completes
+  - `go test ./internal/loop/... -run TestFrontPressure -v` is the targeted command for these tests
+---
+
 ## 2026-03-04 - US-007
 - What was implemented: Added front pressure integration to the Loop. Loop struct got `frontPressureEnabled`, `frontPressureEditor`, `pendingConcern`, and `currentStoryID` fields. Added `SetFrontPressure()` method. Modified `processOutput()` to capture concern text when FP is enabled. Added `handleFrontPressure()` method that loads PRD dismissed concerns, calls the editor, and emits `EventFrontPressureResolved` or `EventFrontPressureScrap`. Modified `Run()` to clear pending concern, capture current story ID before each iteration, call `handleFrontPressure()` after iteration, and return early if a scrap decision stopped the loop. Added two new event types: `EventFrontPressureResolved` and `EventFrontPressureScrap`.
 - Files changed:
