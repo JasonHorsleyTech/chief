@@ -1,4 +1,5 @@
 ## Codebase Patterns
+- GetPrompt() in embed/embed.go appends optional sections to the base template string — good pattern for conditional prompt additions without template placeholder complexity
 - Config structs follow the pattern: nested struct type + field on Config with yaml tag matching camelCase config key
 - Tests use `t.TempDir()` for isolated file system operations
 - All config types are in `internal/config/config.go` (single file)
@@ -43,4 +44,55 @@
   - The concern detection is placed BEFORE the `ralph-status` check in `parseAssistantMessage()` - order matters since first match wins
   - `extractStoryID()` already calls `strings.TrimSpace()` on the extracted content - no need to trim again at the call site
   - Stream-json test fixtures with multiline text must encode newlines as `\n` (JSON escape), not literal newlines
+---
+
+## 2026-03-04 - US-005
+- What was implemented: Created `embed/fp_editor_prompt.txt` with template variables `{{PRD_PATH}}`, `{{STORY_ID}}`, `{{CONCERN_TEXT}}`, `{{DISMISSED_CONCERNS}}`. Added `GetFPEditorPrompt(prdPath, storyID, concern, dismissedConcerns string) string` to `embed/embed.go`. Added four tests covering substitution, decision tags, guidance content, and non-empty output.
+- Files changed:
+  - `embed/fp_editor_prompt.txt` - new file with editor prompt template
+  - `embed/embed.go` - added `fpEditorPromptTemplate` embed var and `GetFPEditorPrompt()` function
+  - `embed/embed_test.go` - added `TestGetFPEditorPrompt_SubstitutesAllPlaceholders`, `TestGetFPEditorPrompt_ContainsDecisionTags`, `TestGetFPEditorPrompt_ContainsGuidance`, `TestGetFPEditorPrompt_NotEmpty`
+- **Learnings for future iterations:**
+  - `GetFPEditorPrompt` takes `dismissedConcerns` as a pre-formatted `string` (not `[]string`) — callers must format the list before calling
+  - The prompt template uses `{{PLACEHOLDER}}` style (same as other prompts), not Go template syntax
+  - The `<fp-decision>` tag examples in the prompt template are used verbatim by `FrontPressureEditor.Review()` in US-006 — keep them consistent
+---
+
+## 2026-03-04 - US-004
+- What was implemented: Extended `GetPrompt()` in `embed/embed.go` to accept `frontPressureEnabled bool` and `dismissedConcerns []string`. When `frontPressureEnabled=true`, a "## Front Pressure" section is appended explaining the tag and constraints. When dismissed concerns are also provided, a "## Previously Dismissed Concerns" section is appended. When `frontPressureEnabled=false`, output is identical to before (no regression). Updated the one caller in `internal/loop/loop.go` to pass `false, nil`. Added three new tests covering all three scenarios.
+- Files changed:
+  - `embed/embed.go` - extended `GetPrompt()` signature and appended conditional sections
+  - `embed/embed_test.go` - updated existing call sites (3) to pass new parameters; added `TestGetPrompt_FrontPressureDisabled`, `TestGetPrompt_FrontPressureEnabled`, `TestGetPrompt_FrontPressureEnabledWithDismissedConcerns`
+  - `internal/loop/loop.go` - updated `embed.GetPrompt()` call to pass `false, nil`
+- **Learnings for future iterations:**
+  - Appending optional sections to a prompt after template substitution is cleaner than adding placeholders to the template for optional/conditional content
+  - When extending a function signature, always grep for all callers before changing the signature to avoid missing any
+  - The `prd.json` `inProgress: true` field is added by the chief orchestrator and should be removed when setting `passes: true`
+---
+
+## 2026-03-04 - US-006
+- What was implemented: Created `FrontPressureEditor` struct in `internal/loop/fp_editor.go`. Added `FPDecision` enum with `FPDecisionEdit`, `FPDecisionDismiss`, `FPDecisionScrap`. Implemented `Review()` method that calls `ClaudeRunner` with the editor prompt and parses `<fp-decision>` tag from output. Default `ClaudeRunner` runs `claude --dangerously-skip-permissions -p <prompt> --output-format stream-json` and collects all assistant text using `ParseLine()`. Missing/unrecognized decision tags default to `FPDecisionDismiss`.
+- Files changed:
+  - `internal/loop/fp_editor.go` - new file with `FPDecision` type, `FrontPressureEditor` struct, `NewFrontPressureEditor()`, `Review()`, and `defaultClaudeRunner()`
+  - `internal/loop/fp_editor_test.go` - new file with 5 tests covering: edit decision, dismiss decision, scrap decision, no decision tag (defaults to dismiss), prompt contains concern and story ID
+- **Learnings for future iterations:**
+  - `FrontPressureEditor.ClaudeRunner` is a function field (not an interface), making it easy to inject a fake in tests without defining a separate interface type
+  - The `defaultClaudeRunner` reuses `ParseLine()` from the same package to extract assistant text from stream-json — consistent with how the loop processes Claude output
+  - The `Review()` method uses `extractStoryID()` (same package) to parse `<fp-decision>` tags — same pattern as parsing `<front-pressure>` and `<ralph-status>` tags
+  - `NewFrontPressureEditor()` sets `ClaudeRunner` to `defaultClaudeRunner` via `e.defaultClaudeRunner` (method value) — tests bypass this by constructing `&FrontPressureEditor{ClaudeRunner: fakeRunner}` directly
+---
+
+## 2026-03-04 - US-007
+- What was implemented: Added front pressure integration to the Loop. Loop struct got `frontPressureEnabled`, `frontPressureEditor`, `pendingConcern`, and `currentStoryID` fields. Added `SetFrontPressure()` method. Modified `processOutput()` to capture concern text when FP is enabled. Added `handleFrontPressure()` method that loads PRD dismissed concerns, calls the editor, and emits `EventFrontPressureResolved` or `EventFrontPressureScrap`. Modified `Run()` to clear pending concern, capture current story ID before each iteration, call `handleFrontPressure()` after iteration, and return early if a scrap decision stopped the loop. Added two new event types: `EventFrontPressureResolved` and `EventFrontPressureScrap`.
+- Files changed:
+  - `internal/loop/parser.go` - added `EventFrontPressureResolved` and `EventFrontPressureScrap` constants with String() cases
+  - `internal/loop/loop.go` - added FP fields to Loop struct, `SetFrontPressure()`, `handleFrontPressure()`, modified `processOutput()` and `Run()`
+  - `internal/loop/loop_test.go` - added `TestFrontPressure_Disabled`, `TestFrontPressure_Enabled_Edit`, `TestFrontPressure_Enabled_Dismiss`, `TestFrontPressure_Enabled_Scrap`
+- **Learnings for future iterations:**
+  - `handleFrontPressure()` is called in `Run()` AFTER `runIterationWithRetry()` returns — not during streaming
+  - The loop captures `currentStoryID` before each iteration by loading the PRD (cheap operation); this is important because after the iteration runs the story may already be marked complete
+  - When FP is disabled (default), `EventFrontPressure` is still emitted to the channel — only the editor call is skipped
+  - The scrap path sets `l.stopped = true` then the Run() loop checks `l.stopped` right after `handleFrontPressure()` and returns nil
+  - Tests for FP directly call `l.handleFrontPressure(ctx)` after `l.processOutput(r)` — no need to run the full `Run()` loop for unit testing
+  - `strings` import was needed in loop.go for `strings.Join(dismissedConcerns, "\n")`
 ---

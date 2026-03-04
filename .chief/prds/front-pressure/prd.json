@@ -58,7 +58,7 @@
         "go test ./embed/... passes"
       ],
       "priority": 4,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-005",
@@ -76,7 +76,7 @@
         "go test ./embed/... passes"
       ],
       "priority": 5,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-006",
@@ -93,7 +93,7 @@
         "go test ./internal/loop/... passes"
       ],
       "priority": 6,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-007",
@@ -112,7 +112,7 @@
         "go test ./internal/loop/... passes"
       ],
       "priority": 7,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-008",
