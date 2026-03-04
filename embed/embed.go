@@ -22,6 +22,9 @@ var convertPromptTemplate string
 //go:embed detect_setup_prompt.txt
 var detectSetupPromptTemplate string
 
+//go:embed fp_editor_prompt.txt
+var fpEditorPromptTemplate string
+
 // GetPrompt returns the agent prompt with the PRD path, progress path, and
 // current story context substituted. The storyContext is the JSON of the
 // current story to work on, inlined directly into the prompt so that the
@@ -75,4 +78,16 @@ func GetConvertPrompt(prdFilePath, idPrefix string) string {
 // GetDetectSetupPrompt returns the prompt for detecting project setup commands.
 func GetDetectSetupPrompt() string {
 	return detectSetupPromptTemplate
+}
+
+// GetFPEditorPrompt returns the front pressure editor prompt with the PRD path,
+// story ID, concern text, and dismissed concerns substituted.
+// dismissedConcerns should be a pre-formatted string (e.g., "(none)" or a
+// comma-separated or newline-separated list of concerns).
+func GetFPEditorPrompt(prdPath, storyID, concern, dismissedConcerns string) string {
+	result := strings.ReplaceAll(fpEditorPromptTemplate, "{{PRD_PATH}}", prdPath)
+	result = strings.ReplaceAll(result, "{{STORY_ID}}", storyID)
+	result = strings.ReplaceAll(result, "{{CONCERN_TEXT}}", concern)
+	result = strings.ReplaceAll(result, "{{DISMISSED_CONCERNS}}", dismissedConcerns)
+	return result
 }

@@ -207,6 +207,76 @@ func TestGetConvertPrompt_CustomPrefix(t *testing.T) {
 	}
 }
 
+func TestGetFPEditorPrompt_SubstitutesAllPlaceholders(t *testing.T) {
+	prdPath := "/path/to/prd.json"
+	storyID := "US-007"
+	concern := "The data model makes downstream stories impossible."
+	dismissedConcerns := "(none)"
+
+	prompt := GetFPEditorPrompt(prdPath, storyID, concern, dismissedConcerns)
+
+	if strings.Contains(prompt, "{{PRD_PATH}}") {
+		t.Error("Expected {{PRD_PATH}} to be substituted")
+	}
+	if strings.Contains(prompt, "{{STORY_ID}}") {
+		t.Error("Expected {{STORY_ID}} to be substituted")
+	}
+	if strings.Contains(prompt, "{{CONCERN_TEXT}}") {
+		t.Error("Expected {{CONCERN_TEXT}} to be substituted")
+	}
+	if strings.Contains(prompt, "{{DISMISSED_CONCERNS}}") {
+		t.Error("Expected {{DISMISSED_CONCERNS}} to be substituted")
+	}
+
+	if !strings.Contains(prompt, prdPath) {
+		t.Errorf("Expected prompt to contain prdPath %q", prdPath)
+	}
+	if !strings.Contains(prompt, storyID) {
+		t.Errorf("Expected prompt to contain storyID %q", storyID)
+	}
+	if !strings.Contains(prompt, concern) {
+		t.Errorf("Expected prompt to contain concern %q", concern)
+	}
+	if !strings.Contains(prompt, dismissedConcerns) {
+		t.Errorf("Expected prompt to contain dismissedConcerns %q", dismissedConcerns)
+	}
+}
+
+func TestGetFPEditorPrompt_ContainsDecisionTags(t *testing.T) {
+	prompt := GetFPEditorPrompt("/prd.json", "US-001", "some concern", "(none)")
+
+	if !strings.Contains(prompt, "<fp-decision>edit</fp-decision>") {
+		t.Error("Expected prompt to contain edit decision tag")
+	}
+	if !strings.Contains(prompt, "<fp-decision>dismiss</fp-decision>") {
+		t.Error("Expected prompt to contain dismiss decision tag")
+	}
+	if !strings.Contains(prompt, "<fp-decision>scrap</fp-decision>") {
+		t.Error("Expected prompt to contain scrap decision tag")
+	}
+}
+
+func TestGetFPEditorPrompt_ContainsGuidance(t *testing.T) {
+	prompt := GetFPEditorPrompt("/prd.json", "US-001", "some concern", "(none)")
+
+	if !strings.Contains(prompt, "Prefer dismiss") {
+		t.Error("Expected prompt to contain guidance about preferring dismiss")
+	}
+	if !strings.Contains(prompt, "Prefer edit") {
+		t.Error("Expected prompt to contain guidance about preferring edit")
+	}
+	if !strings.Contains(prompt, "scrap only") {
+		t.Error("Expected prompt to contain guidance about using scrap only")
+	}
+}
+
+func TestGetFPEditorPrompt_NotEmpty(t *testing.T) {
+	prompt := GetFPEditorPrompt("/prd.json", "US-001", "some concern", "(none)")
+	if prompt == "" {
+		t.Error("Expected GetFPEditorPrompt() to return non-empty prompt")
+	}
+}
+
 func TestGetInitPrompt(t *testing.T) {
 	prdDir := "/path/to/.chief/prds/main"
 
