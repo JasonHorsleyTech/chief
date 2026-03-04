@@ -7,6 +7,9 @@
 - Parser uses `extractStoryID(text, startTag, endTag)` to extract content between XML-like tags; reuse this for new tag types
 - Parser test file is `package loop` (same package, not `_test`)
 - Multiline text in stream-json test fixtures must use `\n` escape sequences in JSON strings (literal newlines break JSON parsing)
+- app.go does NOT import lipgloss by default — add it if adding render methods to app.go; alternatively add render helpers to log.go or other TUI files that already import lipgloss
+- TUI log viewer uses AddEvent() switch to filter which events get displayed; new event types must be added to this switch to appear in the log
+- centerModal(content, width, height) is defined in internal/tui/completion.go — reuse it for completion-like overlay screens
 
 ---
 
@@ -80,6 +83,20 @@
   - The `defaultClaudeRunner` reuses `ParseLine()` from the same package to extract assistant text from stream-json — consistent with how the loop processes Claude output
   - The `Review()` method uses `extractStoryID()` (same package) to parse `<fp-decision>` tags — same pattern as parsing `<front-pressure>` and `<ralph-status>` tags
   - `NewFrontPressureEditor()` sets `ClaudeRunner` to `defaultClaudeRunner` via `e.defaultClaudeRunner` (method value) — tests bypass this by constructing `&FrontPressureEditor{ClaudeRunner: fakeRunner}` directly
+---
+
+## 2026-03-04 - US-008
+- What was implemented: Wired front pressure through Manager and TUI. Manager.Start() now calls instance.Loop.SetFrontPressure(true, NewFrontPressureEditor()) when config.FrontPressure.Enabled is true. Added StateFrontPressure to AppState enum. Added ViewFrontPressureScrap to ViewMode. Added event handling for EventFrontPressure (yellow log entry), EventFrontPressureResolved (green log entry), and EventFrontPressureScrap (transitions to scrap screen). Added renderFrontPressureScrapView() showing a centered modal with explanation and hint. Updated LogViewer.AddEvent() and renderEntry() to handle the two new display events.
+- Files changed:
+  - `internal/loop/manager.go` - Manager.Start() calls SetFrontPressure if config enabled
+  - `internal/tui/app.go` - StateFrontPressure state, ViewFrontPressureScrap view, event handling, renderFrontPressureScrapView(), lipgloss import added
+  - `internal/tui/log.go` - AddEvent() filter and renderEntry() dispatch updated; renderFrontPressure() and renderFrontPressureResolved() helpers added
+- **Learnings for future iterations:**
+  - app.go does NOT import lipgloss by default — must add it explicitly when adding render methods that use lipgloss styles
+  - LogViewer.AddEvent() has a switch that acts as a filter; new events must be added to the case list or they are silently dropped
+  - centerModal() from completion.go is the right utility for centered modal overlays — it's available across the tui package
+  - TUI render methods on *App can be called from the value-receiver View() method because Go auto-dereferences addressable copies
+  - EventFrontPressureScrap should NOT be added to the log filter (it transitions to a new view instead of logging)
 ---
 
 ## 2026-03-04 - US-007
