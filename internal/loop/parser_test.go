@@ -22,6 +22,8 @@ func TestEventTypeString(t *testing.T) {
 		{EventRetrying, "Retrying"},
 		{EventWatchdogTimeout, "WatchdogTimeout"},
 		{EventFrontPressure, "FrontPressure"},
+		{EventFrontPressureResolved, "FrontPressureResolved"},
+		{EventFrontPressureScrap, "FrontPressureScrap"},
 	}
 
 	for _, tt := range tests {
@@ -363,5 +365,84 @@ func TestParseLineFrontPressureMultiline(t *testing.T) {
 	}
 	if event.Text != expectedConcern {
 		t.Errorf("event.Text = %q, want %q", event.Text, expectedConcern)
+	}
+}
+
+func TestParseLineFrontPressureAtStart(t *testing.T) {
+	// Tag appears at the very beginning of the text block
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"<front-pressure>The DB schema is missing a critical foreign key.</front-pressure>\nThis blocks all downstream stories."}]}}`
+
+	event := ParseLine(line)
+	if event == nil {
+		t.Fatal("ParseLine returned nil, want event")
+	}
+	if event.Type != EventFrontPressure {
+		t.Errorf("event.Type = %v, want EventFrontPressure", event.Type)
+	}
+	if event.Text != "The DB schema is missing a critical foreign key." {
+		t.Errorf("event.Text = %q, want %q", event.Text, "The DB schema is missing a critical foreign key.")
+	}
+}
+
+func TestParseLineFrontPressureMidText(t *testing.T) {
+	// Tag appears in the middle of a text block, surrounded by other content
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"I have reviewed the story carefully. <front-pressure>The API contract in story 5 contradicts the schema defined in story 3.</front-pressure> I cannot proceed without resolving this conflict."}]}}`
+
+	event := ParseLine(line)
+	if event == nil {
+		t.Fatal("ParseLine returned nil, want event")
+	}
+	if event.Type != EventFrontPressure {
+		t.Errorf("event.Type = %v, want EventFrontPressure", event.Type)
+	}
+	if event.Text != "The API contract in story 5 contradicts the schema defined in story 3." {
+		t.Errorf("event.Text = %q, want %q", event.Text, "The API contract in story 5 contradicts the schema defined in story 3.")
+	}
+}
+
+func TestParseLineStandardEventsUnaffectedByFrontPressure(t *testing.T) {
+	// Verify standard events still parse correctly after EventFrontPressure was added
+	tests := []struct {
+		name      string
+		line      string
+		wantType  EventType
+		wantTool  string
+	}{
+		{
+			name:     "assistant text",
+			line:     `{"type":"assistant","message":{"content":[{"type":"text","text":"Normal assistant message without any tags."}]}}`,
+			wantType: EventAssistantText,
+		},
+		{
+			name:     "chief-complete tag",
+			line:     `{"type":"assistant","message":{"content":[{"type":"text","text":"All done! <chief-complete/>"}]}}`,
+			wantType: EventComplete,
+		},
+		{
+			name:     "ralph-status tag",
+			line:     `{"type":"assistant","message":{"content":[{"type":"text","text":"Starting work.\n<ralph-status>US-007</ralph-status>"}]}}`,
+			wantType: EventStoryStarted,
+		},
+		{
+			name:     "tool use",
+			line:     `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_01","name":"Read","input":{"file_path":"/test"}}]}}`,
+			wantType: EventToolStart,
+			wantTool: "Read",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := ParseLine(tt.line)
+			if event == nil {
+				t.Fatal("ParseLine returned nil, want event")
+			}
+			if event.Type != tt.wantType {
+				t.Errorf("event.Type = %v, want %v", event.Type, tt.wantType)
+			}
+			if tt.wantTool != "" && event.Tool != tt.wantTool {
+				t.Errorf("event.Tool = %q, want %q", event.Tool, tt.wantTool)
+			}
+		})
 	}
 }

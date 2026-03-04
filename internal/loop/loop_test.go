@@ -460,7 +460,11 @@ func TestLoop_WatchdogKillsHungProcess(t *testing.T) {
 	// Start watchdog with a short check interval
 	watchdogDone := make(chan struct{})
 	var fired atomic.Bool
-	go l.runWatchdog(timeout, watchdogDone, &fired)
+	watchdogExited := make(chan struct{})
+	go func() {
+		l.runWatchdog(timeout, watchdogDone, &fired)
+		close(watchdogExited)
+	}()
 
 	// processOutput will block until pipe is closed (by watchdog killing would close it,
 	// but in this test we close it manually after watchdog fires)
@@ -472,6 +476,7 @@ func TestLoop_WatchdogKillsHungProcess(t *testing.T) {
 
 	l.processOutput(r)
 	close(watchdogDone)
+	<-watchdogExited // Wait for watchdog goroutine to fully exit before closing events
 	close(l.events)
 	<-done
 
