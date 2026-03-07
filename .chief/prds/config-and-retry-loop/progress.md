@@ -1,4 +1,7 @@
 ## Codebase Patterns
+- `IsRateLimitError` lives in `internal/loop/ratelimit.go`; uses `strings.ToLower` + `strings.Contains` for case-insensitive matching against a `rateLimitPatterns` slice
+
+
 - Config struct is in `internal/config/config.go`; tests are in `config_test.go` in the same package
 - `Default()` must explicitly set non-zero defaults (e.g., `RetryIntervalMinutes: 60`)
 - `Load()` starts from `Default()` then unmarshals YAML over it, so missing keys keep their defaults automatically
@@ -48,6 +51,15 @@
 - **Learnings for future iterations:**
   - `printHelp()` in `cmd/chief/main.go` is a raw multi-line string literal — edits are straightforward text additions
   - The `config` subcommand was already wired in `findSubcmd()` switch but not mentioned in the help output; always keep Commands list in sync with the switch cases
+---
+
+## 2026-03-07 - US-006
+- What was implemented: Added `IsRateLimitError(output string) bool` in `internal/loop/ratelimit.go`. Matches known rate-limit/quota patterns case-insensitively: `"rate limit"`, `"rate_limit"`, `"quota"`, `"overloaded"`, `"529"`, `"429"`, `"usage limit"`. Tests cover 8 true cases and 4 false cases.
+- Files changed: `internal/loop/ratelimit.go` (new), `internal/loop/ratelimit_test.go` (new), `.chief/prds/config-and-retry-loop/prd.json`
+- **Learnings for future iterations:**
+  - New helper functions in `internal/loop/` can go in their own file; the package is `loop` (no subdirectory needed)
+  - Pattern matching uses `strings.ToLower` + `strings.Contains` for simple, robust case-insensitive matching — no regex needed
+  - US-007 will use `IsRateLimitError` in `runIteration` to decide whether to enter a rate-limit waiting state vs. treating the error as a crash
 ---
 
 ## 2026-03-07 - US-005
