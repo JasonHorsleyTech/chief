@@ -1,0 +1,132 @@
+{
+  "project": "Expanded Config System + Rate-Limit Retry Loop",
+  "description": "Chief currently has a minimal config system with only three settings. This PRD covers two tightly related improvements: an Expanded Config System that adds new configuration fields, makes the config file easy to initialize and edit from the CLI, and surfaces it in help output; and a Rate-Limit Retry Loop that automatically waits and retries when a running Claude session hits an API rate limit or quota exhaustion error.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Expand config schema with new fields",
+      "description": "As a developer, I need the config struct to support the new settings so they can be parsed from YAML, defaulted, and passed through the system.",
+      "acceptanceCriteria": [
+        "`Config` struct in `internal/config/config.go` adds: `PromptsDir string` (default: `\"\"`, meaning use embedded), `RetryOnRateLimit bool` (default: `false`), `RetryIntervalMinutes int` (default: `60`), `MaxRateLimitRetries int` (default: `3`)",
+        "`Default()` returns correct zero/false values for new fields",
+        "`Load()` correctly deserializes new fields from YAML; missing keys use defaults",
+        "`Save()` serializes all fields including new ones",
+        "`go test ./internal/config/...` passes"
+      ],
+      "priority": 1,
+      "passes": true
+    },
+    {
+      "id": "US-002",
+      "title": "Add `chief config` subcommand",
+      "description": "As a user, I want to run `chief config` to see my current config and know where the file lives, so I can understand what's configured without hunting for the file.",
+      "acceptanceCriteria": [
+        "`chief config` prints the current effective config as YAML to stdout, including default values",
+        "Output includes a comment header showing the config file path that was loaded (e.g., `# Config: /path/to/project/.chief/config.yaml`)",
+        "If no config file exists, output includes a note: `# No config file found. Run 'chief config init' to create one.`",
+        "`chief config --help` shows usage",
+        "`go test ./cmd/...` passes (or existing test suite passes)"
+      ],
+      "priority": 2,
+      "passes": false
+    },
+    {
+      "id": "US-003",
+      "title": "Add `chief config init` to scaffold a config file",
+      "description": "As a new user, I want to run `chief config init` to generate a commented config file with all available options, so I can understand what's configurable and edit it to my needs.",
+      "acceptanceCriteria": [
+        "`chief config init` creates `.chief/config.yaml` in the current directory",
+        "Generated file includes every config field with its default value",
+        "Each field has an inline comment explaining what it does and valid values",
+        "If `.chief/config.yaml` already exists, command prints an error and exits non-zero without overwriting",
+        "`--force` flag overwrites existing config",
+        "Generated file is valid YAML that `Load()` can parse without error",
+        "`go test ./cmd/...` passes"
+      ],
+      "priority": 3,
+      "passes": false
+    },
+    {
+      "id": "US-004",
+      "title": "Surface config in `--help` output",
+      "description": "As a user reading `chief --help`, I want to see a mention of the config file so I know it exists and how to learn more about it.",
+      "acceptanceCriteria": [
+        "`chief --help` output includes a section or note like: `Config: Run 'chief config' to view settings, 'chief config init' to create a config file.`",
+        "The config file path (`.chief/config.yaml`) is mentioned",
+        "`chief config --help` is also mentioned or discoverable from `chief --help`"
+      ],
+      "priority": 4,
+      "passes": false
+    },
+    {
+      "id": "US-005",
+      "title": "Wire `promptsDir` config field through the system",
+      "description": "As a user, I want to set `promptsDir` in my config file instead of always passing `--prompts-dir` on the CLI, so my custom prompts are used automatically.",
+      "acceptanceCriteria": [
+        "When `PromptsDir` is set in config and no `--prompts-dir` flag is provided, the config value is used",
+        "CLI flag `--prompts-dir` takes precedence over config value when both are set",
+        "Empty `PromptsDir` in config falls back to embedded prompts (existing behavior)",
+        "`go test ./...` passes"
+      ],
+      "priority": 5,
+      "passes": false
+    },
+    {
+      "id": "US-006",
+      "title": "Detect rate-limit and quota errors from Claude output",
+      "description": "As a developer, I need the loop runner to detect when Claude has returned a rate-limit or quota error so the system can enter a waiting state instead of treating it as a crash.",
+      "acceptanceCriteria": [
+        "A function `IsRateLimitError(output string) bool` (or equivalent) is defined in `internal/loop/`",
+        "Function returns `true` for known rate-limit/quota patterns in Claude's stream-json output (e.g., messages containing `\"rate limit\"`, `\"quota\"`, `\"overloaded\"`, `\"529\"`, `\"429\"`, `\"usage limit\"`)",
+        "Function returns `false` for normal process exits and other error types",
+        "Unit tests cover at least 5 known error string patterns (true cases) and 3 non-matching cases (false cases)",
+        "`go test ./internal/loop/...` passes"
+      ],
+      "priority": 6,
+      "passes": false
+    },
+    {
+      "id": "US-007",
+      "title": "Implement rate-limit waiting state in the loop runner",
+      "description": "As a user running chief overnight, I want the loop to pause and retry after a rate-limit error instead of stopping, so I can recover quota and continue work automatically.",
+      "acceptanceCriteria": [
+        "When `IsRateLimitError` returns true AND `config.RetryOnRateLimit` is true AND retry attempts \u003c `config.MaxRateLimitRetries`, the loop enters a `StateRateLimitWaiting` state",
+        "The loop waits `config.RetryIntervalMinutes` minutes before retrying",
+        "A new event type `EventRateLimitWaiting` is emitted with fields: `RetryAt time.Time`, `AttemptNumber int`, `MaxAttempts int`",
+        "After the wait, the loop retries the current story from the beginning (same behavior as existing crash retry)",
+        "If `MaxRateLimitRetries` is exhausted, the loop emits `EventError` and stops (does not loop forever)",
+        "If `config.RetryOnRateLimit` is false, existing behavior is preserved (loop stops on rate-limit error)",
+        "`go test ./internal/loop/...` passes"
+      ],
+      "priority": 7,
+      "passes": false
+    },
+    {
+      "id": "US-008",
+      "title": "Show rate-limit countdown in the TUI",
+      "description": "As a user, I want to see a clear countdown in the TUI when chief is waiting for a rate limit to expire, so I know it's not hung and understand when it will retry.",
+      "acceptanceCriteria": [
+        "When `EventRateLimitWaiting` is received, the TUI displays a visible \"Rate limit — retrying in X:XX:XX\" countdown for the affected PRD/loop",
+        "Countdown updates every second using a `tea.Tick`-style timer",
+        "Countdown shows: attempt number and max attempts (e.g., \"Attempt 1/3\")",
+        "When the wait completes and the retry begins, the display returns to normal running state",
+        "The countdown is visible in the dashboard view (does not require switching to log view)",
+        "Other PRDs/loops continue running normally and are not blocked by a waiting loop"
+      ],
+      "priority": 8,
+      "passes": false
+    },
+    {
+      "id": "US-009",
+      "title": "Document config fields and retry behavior",
+      "description": "As a user reading the README or running `chief --help`, I want to understand the retry feature and how to enable it, so I can configure it for overnight use.",
+      "acceptanceCriteria": [
+        "`README.md` includes a \"Configuration\" section documenting all config fields with examples",
+        "`README.md` includes an example config snippet showing retry settings enabled",
+        "`chief config init` output already serves as inline documentation (covered by US-003)"
+      ],
+      "priority": 9,
+      "passes": false
+    }
+  ]
+}
