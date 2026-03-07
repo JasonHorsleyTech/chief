@@ -1,5 +1,9 @@
 ## Codebase Patterns
 - `IsRateLimitError` lives in `internal/loop/ratelimit.go`; uses `strings.ToLower` + `strings.Contains` for case-insensitive matching against a `rateLimitPatterns` slice
+- Rate-limit retry uses an outer loop in `runIterationWithRetry`; crash retry is the inner loop in `runIterationWithCrashRetry`; rate-limit detection flag (`rateLimitDetected`) is set in `processOutput` and checked after each inner loop run
+- `EventRateLimitWaiting` carries `RetryAt time.Time`, `AttemptNumber int`, `MaxAttempts int` fields; zero-valued for all other event types
+- `LoopStateRateLimitWaiting` added to `LoopState` enum in `manager.go`; manager sets it on `EventRateLimitWaiting` and resets to `LoopStateRunning` on `EventRetrying`/`EventIterationStart`
+- `Manager.SetConfig()` derives `rateLimitRetryConfig` from `config.Config` fields automatically
 
 
 - Config struct is in `internal/config/config.go`; tests are in `config_test.go` in the same package
@@ -60,6 +64,17 @@
   - New helper functions in `internal/loop/` can go in their own file; the package is `loop` (no subdirectory needed)
   - Pattern matching uses `strings.ToLower` + `strings.Contains` for simple, robust case-insensitive matching — no regex needed
   - US-007 will use `IsRateLimitError` in `runIteration` to decide whether to enter a rate-limit waiting state vs. treating the error as a crash
+---
+
+## 2026-03-07 - US-007
+- What was implemented: Added `RateLimitRetryConfig` struct and rate-limit retry logic to the loop runner. Added `EventRateLimitWaiting` event type with `RetryAt`, `AttemptNumber`, `MaxAttempts` fields. Added `LoopStateRateLimitWaiting` to `LoopState`. Rate-limit detection happens in `processOutput` by calling `IsRateLimitError` on raw output lines. The outer retry loop (`runIterationWithRetry`) handles rate-limit waits; crash retries stay in inner `runIterationWithCrashRetry`. `Manager.SetConfig()` auto-derives `rateLimitRetryConfig` from config fields. Rate-limit retry is disabled by default (opt-in via `retryOnRateLimit: true` in config).
+- Files changed: `internal/loop/parser.go`, `internal/loop/loop.go`, `internal/loop/manager.go`, `internal/loop/loop_test.go`, `.chief/prds/config-and-retry-loop/prd.json`
+- **Learnings for future iterations:**
+  - Rate-limit retry is a separate outer loop from crash retry — don't conflate the two
+  - `processOutput` runs in a goroutine but `wg.Wait()` in `runIteration` ensures it completes before the error is inspected; safe to check `rateLimitDetected` after `runIteration` returns
+  - `time.After(0)` fires immediately — setting `RetryIntervalMinutes: 0` enables fast integration tests
+  - `LoopStateRateLimitWaiting` is set by the manager's event forwarding goroutine based on `EventRateLimitWaiting`; it reverts to `LoopStateRunning` on next `EventRetrying` or `EventIterationStart`
+  - US-008 (TUI countdown) will react to `EventRateLimitWaiting` events and use `RetryAt` to compute the countdown
 ---
 
 ## 2026-03-07 - US-005
