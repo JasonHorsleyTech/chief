@@ -659,6 +659,7 @@ Commands:
   status [name]             Show progress for a PRD (default: main)
   list                      List all PRDs with progress
   update                    Update Chief to the latest version
+  config                    View and manage configuration (.chief/config.yaml)
   init-prompts [path]       Scaffold a prompts directory with default templates
   help                      Show this help message
 
@@ -701,7 +702,12 @@ Examples:
   chief status auth         Show progress for auth PRD
   chief list                List all PRDs with progress
   chief init-prompts        Scaffold ~/chief-prompts/ with default templates
-  chief --version           Show version number`)
+  chief --version           Show version number
+
+Config:
+  Config file: .chief/config.yaml
+  Run 'chief config' to view settings, 'chief config init' to create a config file.
+  Run 'chief config --help' for config subcommand usage.`)
 }
 
 func printWiggum() {
