@@ -56,7 +56,7 @@
         "`chief config --help` is also mentioned or discoverable from `chief --help`"
       ],
       "priority": 4,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-005",

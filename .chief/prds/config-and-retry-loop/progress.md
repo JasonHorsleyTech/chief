@@ -41,3 +41,11 @@
   - `config.Exists(baseDir)` + `config.Load(baseDir)` are the two config package functions needed for the show-config command
   - Test output capture via `os.Pipe()` works reliably as long as tests are sequential (no `t.Parallel()`)
 ---
+
+## 2026-03-07 - US-004
+- What was implemented: Updated `printHelp()` in `cmd/chief/main.go` to surface the config command. Added `config` to the Commands list with an inline note about `.chief/config.yaml`. Added a `Config:` section at the end of help output mentioning the config file path, `chief config` to view settings, `chief config init` to create a config file, and `chief config --help` for subcommand details.
+- Files changed: `cmd/chief/main.go`, `.chief/prds/config-and-retry-loop/prd.json`
+- **Learnings for future iterations:**
+  - `printHelp()` in `cmd/chief/main.go` is a raw multi-line string literal — edits are straightforward text additions
+  - The `config` subcommand was already wired in `findSubcmd()` switch but not mentioned in the help output; always keep Commands list in sync with the switch cases
+---
