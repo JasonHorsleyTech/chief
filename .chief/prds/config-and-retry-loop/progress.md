@@ -8,6 +8,7 @@
 - `findSubcmd()` returns the first non-flag positional arg; nested sub-subcommands (e.g., `config init`) require manual arg parsing within the subcommand handler
 - Tests that capture stdout use `os.Pipe()` to redirect `os.Stdout`; must restore `os.Stdout` after — do not run in parallel
 - `config.Exists(baseDir)` is the exported way to check if `.chief/config.yaml` exists
+- For config init with comments: use a raw string `const` template rather than `yaml.Marshal` (which strips comments); write via `os.WriteFile`
 
 ---
 
@@ -19,6 +20,15 @@
   - The existing `Save()` with `yaml.Marshal` automatically serializes all struct fields including newly added ones
   - CLI commands live in `internal/cmd/` — future US-002/US-003 will need to add a `config` subcommand there
   - The `cmd/chief/` directory contains the main entry point; examine how existing subcommands are wired up before adding new ones
+---
+
+## 2026-03-07 - US-003
+- What was implemented: Added `chief config init` sub-subcommand. Implemented `RunConfigInit` function in `internal/cmd/config.go` with a `configInitTemplate` const string (raw YAML with inline comments for every field). Handles existing file (error unless `--force`). Added 5 tests covering: file creation, all fields present, valid YAML parseable by `Load()`, error on existing file, `--force` overwrite. Wired `case "init":` into `runConfig()` in `main.go` with `--force` flag parsing.
+- Files changed: `internal/cmd/config.go`, `internal/cmd/config_test.go`, `cmd/chief/main.go`, `.chief/prds/config-and-retry-loop/prd.json`
+- **Learnings for future iterations:**
+  - `yaml.Marshal` does not preserve comments — use a hand-written template string for commented config files
+  - Sub-subcommand flags (like `--force` for `config init`) must be parsed from the `remaining` slice inside `runConfig()` in `main.go`
+  - `os.MkdirAll(filepath.Dir(cfgPath), 0o755)` is needed before `os.WriteFile` to ensure `.chief/` exists
 ---
 
 ## 2026-03-07 - US-002
