@@ -1,130 +1,130 @@
 {
-  "project": "PRD: Custom Prompts Directory Override",
+  "project": "Custom Prompts Directory Override",
   "description": "Chief embeds five prompt templates at compile time that drive every Claude invocation in the Ralph loop. This feature lets users override any or all of those prompts by pointing Chief at a local directory containing replacement files. Running `chief --prompts-dir /path/to/dir` causes every operation in that session to prefer the files in that directory over the built-in defaults, enabling rapid experimentation with agent instructions without recompiling. A companion `chief init-prompts [path]` subcommand scaffolds the directory by copying all five embedded prompts into it, giving users a ready-to-edit starting point.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Parse `--prompts-dir` global flag and validate directory",
-      "description": "As a user, I want Chief to accept a `--prompts-dir \u003cpath\u003e` flag so I can tell it where my custom prompts live before any Claude invocations happen.",
+      "title": "Parse --prompts-dir global flag and validate directory",
+      "description": "As a user, I want Chief to accept a --prompts-dir \u003cpath\u003e flag so I can tell it where my custom prompts live before any Claude invocations happen.",
       "acceptanceCriteria": [
-        "`--prompts-dir \u003cpath\u003e` is accepted anywhere in the CLI argument list before a subcommand or PRD name (e.g. `chief --prompts-dir /foo`, `chief --prompts-dir /foo new`, `chief --prompts-dir /foo my-prd`).",
-        "If the flag is present and `\u003cpath\u003e` does not exist or is not a readable directory, Chief prints a clear error (`prompts directory not found: \u003cpath\u003e`) and exits with a non-zero code. It does not fall back silently.",
+        "--prompts-dir \u003cpath\u003e is accepted anywhere in the CLI argument list before a subcommand or PRD name (e.g. `chief --prompts-dir /foo`, `chief --prompts-dir /foo new`, `chief --prompts-dir /foo my-prd`).",
+        "If the flag is present and \u003cpath\u003e does not exist or is not a readable directory, Chief prints a clear error (`prompts directory not found: \u003cpath\u003e`) and exits with a non-zero code. It does not fall back silently.",
         "If the flag is absent, Chief behaves exactly as it does today.",
-        "The parsed path is stored in `TUIOptions.PromptsDir string` and threaded into all downstream option structs throughout the session (including recursive `runTUIWithOptions` calls triggered by post-exit actions).",
-        "`--help` output lists the new flag with a one-line description.",
+        "The parsed path is stored in TUIOptions.PromptsDir string and threaded into all downstream option structs throughout the session (including recursive runTUIWithOptions calls triggered by post-exit actions).",
+        "--help output lists the new flag with a one-line description.",
         "Typecheck passes."
       ],
       "priority": 1,
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-002",
-      "title": "Override-aware prompt loading in the `embed` package",
-      "description": "As a developer, I need the `embed` package to check a prompts directory for each template file before using the compiled-in default, so all five prompts can be independently overridden.",
+      "title": "Override-aware prompt loading in the embed package",
+      "description": "As a developer, I need the embed package to check a prompts directory for each template file before using the compiled-in default, so all five prompts can be independently overridden.",
       "acceptanceCriteria": [
-        "Each of the five existing `Get*` functions gains a `promptsDir string` as its first parameter: `GetPrompt`, `GetInitPrompt`, `GetEditPrompt`, `GetConvertPrompt`, `GetDetectSetupPrompt`.",
-        "When `promptsDir` is non-empty, the function attempts to read the corresponding file from that directory using the same filename as the embedded file (`prompt.txt`, `init_prompt.txt`, `edit_prompt.txt`, `convert_prompt.txt`, `detect_setup_prompt.txt`).",
-        "If the override file is present and readable, its content is used as the template instead of the embedded string. Template variable substitution (`{{PRD_PATH}}`, `{{STORY_ID}}`, etc.) still runs normally on the override content.",
+        "Each of the five existing Get* functions gains a promptsDir string as its first parameter: GetPrompt, GetInitPrompt, GetEditPrompt, GetConvertPrompt, GetDetectSetupPrompt.",
+        "When promptsDir is non-empty, the function attempts to read the corresponding file from that directory using the same filename as the embedded file (prompt.txt, init_prompt.txt, edit_prompt.txt, convert_prompt.txt, detect_setup_prompt.txt).",
+        "If the override file is present and readable, its content is used as the template instead of the embedded string. Template variable substitution ({{PRD_PATH}}, {{STORY_ID}}, etc.) still runs normally on the override content.",
         "If the override file is absent from the directory (but the directory itself exists and was already validated), the function falls back to the embedded default without error.",
-        "When `promptsDir` is empty (`\"\"`), behaviour is identical to today.",
-        "All existing call sites are updated to pass `\"\"` as `promptsDir` so they compile; subsequent stories replace `\"\"` with the real value.",
+        "When promptsDir is empty (\"\"), behaviour is identical to today.",
+        "All existing call sites are updated to pass \"\" as promptsDir so they compile; subsequent stories replace \"\" with the real value.",
         "Unit tests cover: empty dir (uses embedded), dir with override file (uses override), dir missing a specific file (uses embedded for that file).",
         "Typecheck passes."
       ],
       "priority": 2,
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-003",
-      "title": "Thread `PromptsDir` through the agent loop",
-      "description": "As a user, I want the Ralph loop agent prompt to be read from my custom directory when I launch the TUI with `--prompts-dir`, so every Claude agent iteration uses my override instructions.",
+      "title": "Thread PromptsDir through the agent loop",
+      "description": "As a user, I want the Ralph loop agent prompt to be read from my custom directory when I launch the TUI with --prompts-dir, so every Claude agent iteration uses my override instructions.",
       "acceptanceCriteria": [
-        "`tui.NewAppWithOptions` (or an equivalent setter on `tui.App`) accepts `PromptsDir string` and stores it.",
-        "`Manager` gains a `PromptsDir string` field and a setter (e.g. `SetPromptsDir`); `tui.App` calls the setter before starting any loop.",
-        "`promptBuilderForPRD` (in `loop.go`) accepts `promptsDir string` and passes it to `embed.GetPrompt`.",
-        "`Manager.Start` passes `m.PromptsDir` when constructing the `promptBuilderForPRD` closure.",
-        "Running `chief --prompts-dir /my/dir` and pressing play in the TUI causes each Claude iteration to use `/my/dir/prompt.txt` if it exists.",
+        "tui.NewAppWithOptions (or an equivalent setter on tui.App) accepts PromptsDir string and stores it.",
+        "Manager gains a PromptsDir string field and a setter (e.g. SetPromptsDir); tui.App calls the setter before starting any loop.",
+        "promptBuilderForPRD (in loop.go) accepts promptsDir string and passes it to embed.GetPrompt.",
+        "Manager.Start passes m.PromptsDir when constructing the promptBuilderForPRD closure.",
+        "Running `chief --prompts-dir /my/dir` and pressing play in the TUI causes each Claude iteration to use /my/dir/prompt.txt if it exists.",
         "Typecheck passes."
       ],
       "priority": 3,
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-004",
-      "title": "Thread `PromptsDir` through `chief new`",
-      "description": "As a user, I want `chief new` (run directly or triggered from within the TUI) to use my custom init prompt when `--prompts-dir` is set.",
+      "title": "Thread PromptsDir through chief new",
+      "description": "As a user, I want chief new (run directly or triggered from within the TUI) to use my custom init prompt when --prompts-dir is set.",
       "acceptanceCriteria": [
-        "`cmd.NewOptions` gains a `PromptsDir string` field.",
-        "`main.go` `runNew()` reads the global `PromptsDir` (parsed from `--prompts-dir`) and sets `opts.PromptsDir` before calling `cmd.RunNew`.",
-        "`cmd.RunNew` passes `opts.PromptsDir` to `embed.GetInitPrompt`.",
-        "When a post-exit `PostExitInit` action re-invokes `runNew` from within `runTUIWithOptions`, the same `PromptsDir` from the original `TUIOptions` is forwarded.",
-        "Running `chief --prompts-dir /my/dir new` uses `/my/dir/init_prompt.txt` if present.",
+        "cmd.NewOptions gains a PromptsDir string field.",
+        "main.go runNew() reads the global PromptsDir (parsed from --prompts-dir) and sets opts.PromptsDir before calling cmd.RunNew.",
+        "cmd.RunNew passes opts.PromptsDir to embed.GetInitPrompt.",
+        "When a post-exit PostExitInit action re-invokes runNew from within runTUIWithOptions, the same PromptsDir from the original TUIOptions is forwarded.",
+        "Running `chief --prompts-dir /my/dir new` uses /my/dir/init_prompt.txt if present.",
         "Typecheck passes."
       ],
       "priority": 4,
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-005",
-      "title": "Thread `PromptsDir` through `chief edit`",
-      "description": "As a user, I want `chief edit` to use my custom edit prompt when `--prompts-dir` is set.",
+      "title": "Thread PromptsDir through chief edit",
+      "description": "As a user, I want chief edit to use my custom edit prompt when --prompts-dir is set.",
       "acceptanceCriteria": [
-        "`cmd.EditOptions` gains a `PromptsDir string` field.",
-        "`main.go` `runEdit()` reads the global `PromptsDir` and sets `opts.PromptsDir` before calling `cmd.RunEdit`.",
-        "`cmd.RunEdit` passes `opts.PromptsDir` to `embed.GetEditPrompt`.",
-        "When a post-exit `PostExitEdit` action re-invokes `runEdit` from within `runTUIWithOptions`, the `PromptsDir` from the original `TUIOptions` is forwarded.",
-        "Running `chief --prompts-dir /my/dir edit` uses `/my/dir/edit_prompt.txt` if present.",
+        "cmd.EditOptions gains a PromptsDir string field.",
+        "main.go runEdit() reads the global PromptsDir and sets opts.PromptsDir before calling cmd.RunEdit.",
+        "cmd.RunEdit passes opts.PromptsDir to embed.GetEditPrompt.",
+        "When a post-exit PostExitEdit action re-invokes runEdit from within runTUIWithOptions, the PromptsDir from the original TUIOptions is forwarded.",
+        "Running `chief --prompts-dir /my/dir edit` uses /my/dir/edit_prompt.txt if present.",
         "Typecheck passes."
       ],
       "priority": 5,
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-006",
-      "title": "Thread `PromptsDir` through PRD conversion and setup detection",
-      "description": "As a user, I want PRD conversion (`prd.md` → `prd.json`) and first-time setup detection to also use my custom prompts when `--prompts-dir` is set.",
+      "title": "Thread PromptsDir through PRD conversion and setup detection",
+      "description": "As a user, I want PRD conversion (prd.md to prd.json) and first-time setup detection to also use my custom prompts when --prompts-dir is set.",
       "acceptanceCriteria": [
-        "`prd.ConvertOptions` gains a `PromptsDir string` field.",
-        "`prd.Convert` passes `opts.PromptsDir` to `embed.GetConvertPrompt`.",
-        "`cmd.ConvertOptions` (in `internal/cmd/new.go`) gains `PromptsDir string` and forwards it to `prd.ConvertOptions` in `RunConvertWithOptions`.",
-        "`cmd.RunNew` passes `PromptsDir` through to `RunConvertWithOptions`.",
-        "The inline conversion step in `main.go` `runTUIWithOptions` also receives `opts.PromptsDir` in `prd.ConvertOptions`.",
-        "Wherever `embed.GetDetectSetupPrompt()` is called, the call site is updated to pass `PromptsDir` (trace the call from `tui/first_time_setup.go` or wherever it lives).",
-        "Running `chief --prompts-dir /my/dir` uses `/my/dir/convert_prompt.txt` and `/my/dir/detect_setup_prompt.txt` if present, for all conversion and setup-detection operations.",
+        "prd.ConvertOptions gains a PromptsDir string field.",
+        "prd.Convert passes opts.PromptsDir to embed.GetConvertPrompt.",
+        "cmd.ConvertOptions (in internal/cmd/new.go) gains PromptsDir string and forwards it to prd.ConvertOptions in RunConvertWithOptions.",
+        "cmd.RunNew passes PromptsDir through to RunConvertWithOptions.",
+        "The inline conversion step in main.go runTUIWithOptions also receives opts.PromptsDir in prd.ConvertOptions.",
+        "Wherever embed.GetDetectSetupPrompt() is called, the call site is updated to pass PromptsDir (trace the call from tui/first_time_setup.go or wherever it lives).",
+        "Running `chief --prompts-dir /my/dir` uses /my/dir/convert_prompt.txt and /my/dir/detect_setup_prompt.txt if present, for all conversion and setup-detection operations.",
         "Typecheck passes."
       ],
       "priority": 6,
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-007",
-      "title": "Add `chief init-prompts [path]` subcommand",
+      "title": "Add chief init-prompts [path] subcommand",
       "description": "As a user, I want a single command that creates my prompts directory pre-populated with all of Chief's current default prompts, so I can start customising from a known baseline without hunting for the source files.",
       "acceptanceCriteria": [
-        "`chief init-prompts` (no path) creates `~/chief-prompts/` and writes all five prompt files into it.",
+        "`chief init-prompts` (no path) creates ~/chief-prompts/ and writes all five prompt files into it.",
         "`chief init-prompts /custom/path` creates the specified directory and writes all five prompt files into it.",
-        "The five files written are named exactly: `prompt.txt`, `init_prompt.txt`, `edit_prompt.txt`, `convert_prompt.txt`, `detect_setup_prompt.txt`. Content is identical to the current embedded defaults.",
+        "The five files written are named exactly: prompt.txt, init_prompt.txt, edit_prompt.txt, convert_prompt.txt, detect_setup_prompt.txt. Content is identical to the current embedded defaults.",
         "If the target directory already exists, Chief writes (overwrites) each file without error. It does not ask for confirmation.",
-        "On success, Chief prints the resolved absolute path of the directory and a list of the files written, e.g.: `Prompts directory initialised: /Users/you/chief-prompts` followed by the five filenames and `Run: chief --prompts-dir /Users/you/chief-prompts`.",
-        "The subcommand is wired into the `switch os.Args[1]` block in `main.go`.",
-        "`--help` output lists `init-prompts` under Commands.",
+        "On success, Chief prints the resolved absolute path of the directory and a list of the files written, e.g.: Prompts directory initialised: /Users/you/chief-prompts\\n  prompt.txt\\n  init_prompt.txt\\n  edit_prompt.txt\\n  convert_prompt.txt\\n  detect_setup_prompt.txt\\nRun: chief --prompts-dir /Users/you/chief-prompts",
+        "The subcommand is wired into the switch os.Args[1] block in main.go.",
+        "--help output lists init-prompts under Commands.",
         "Typecheck passes."
       ],
       "priority": 7,
-      "passes": true
+      "passes": false
     },
     {
       "id": "US-008",
-      "title": "Update `--help` and documentation",
-      "description": "As a user, I want `chief --help` to document the new flag and subcommand so I can discover them without reading source code.",
+      "title": "Update --help and documentation",
+      "description": "As a user, I want chief --help to document the new flag and subcommand so I can discover them without reading source code.",
       "acceptanceCriteria": [
-        "`--help` output includes `--prompts-dir \u003cpath\u003e` under Global Options with a brief description: \"Load prompt overrides from directory (hard-fails if path is invalid)\".",
-        "`--help` output includes `init-prompts [path]` under Commands with a brief description: \"Scaffold a prompts directory with default templates\".",
+        "--help output includes --prompts-dir \u003cpath\u003e under Global Options with a brief description: \"Load prompt overrides from directory (hard-fails if path is invalid)\".",
+        "--help output includes init-prompts [path] under Commands with a brief description: \"Scaffold a prompts directory with default templates\".",
         "Usage examples section includes at least two examples: `chief --prompts-dir ~/chief-prompts` and `chief init-prompts`.",
         "Typecheck passes."
       ],
       "priority": 8,
-      "passes": true
+      "passes": false
     }
   ]
 }
