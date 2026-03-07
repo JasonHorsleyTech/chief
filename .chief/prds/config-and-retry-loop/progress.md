@@ -101,3 +101,12 @@
   - Config-based `PromptsDir` should be validated with `os.Stat` (same as CLI path) to silently ignore misconfigured/missing paths
   - The three places to wire prompts dir: `runTUIWithOptions` (TUI mode), `runNew` (new PRD creation), `runEdit` (PRD editing)
 ---
+
+## 2026-03-07 - US-009
+- What was implemented: Added a "Configuration" section to `README.md` documenting all config fields in a markdown table and including an example YAML snippet showing retry settings enabled for overnight use. The section explains the rate-limit countdown TUI behavior as well.
+- Files changed: `README.md`, `.chief/prds/config-and-retry-loop/prd.json`
+- **Learnings for future iterations:**
+  - README edits are straightforward — insert the new section between existing `## Requirements` and `## License` headings
+  - The config fields to document live in `internal/cmd/config.go` (`configInitTemplate`) and `internal/config/config.go` (`Default()`)
+  - A markdown table works well for documenting config fields with their defaults and descriptions
+---

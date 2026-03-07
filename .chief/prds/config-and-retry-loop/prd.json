@@ -126,7 +126,7 @@
         "`chief config init` output already serves as inline documentation (covered by US-003)"
       ],
       "priority": 9,
-      "passes": false
+      "passes": true
     }
   ]
 }
