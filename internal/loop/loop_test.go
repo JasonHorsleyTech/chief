@@ -889,3 +889,100 @@ func TestLoop_RateLimitRetry_Integration(t *testing.T) {
 		t.Errorf("Expected at most 2 EventRateLimitWaiting events (MaxRetries=2), got %d", waitingCount)
 	}
 }
+
+// TestLoop_StopDuringRateLimitWait verifies that calling Stop() while the loop is
+// blocked waiting for a rate-limit retry interval exits cleanly (no EventError,
+// Run returns nil). Regression test for the ctx.Done() path in runIterationWithRetry.
+func TestLoop_StopDuringRateLimitWait(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping integration test in CI")
+	}
+
+	tmpDir := t.TempDir()
+	prdPath := createTestPRD(t, tmpDir, false)
+
+	// Create a mock Claude that outputs a rate-limit error and exits 1
+	claudePath := filepath.Join(tmpDir, "claude")
+	script := "#!/bin/bash\necho '{\"type\":\"system\",\"subtype\":\"init\"}'\necho 'rate limit exceeded: quota hit'\nexit 1\n"
+	if err := os.WriteFile(claudePath, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	origPath := os.Getenv("PATH")
+	defer os.Setenv("PATH", origPath)
+	os.Setenv("PATH", tmpDir+":"+origPath)
+
+	l := NewLoop(prdPath, "test", 1)
+	l.SetRateLimitRetryConfig(RateLimitRetryConfig{
+		Enabled:              true,
+		MaxRetries:           3,
+		RetryIntervalMinutes: 1, // 1-minute wait; test stops before it fires
+	})
+	l.DisableRetry()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var events []Event
+	var mu sync.Mutex
+	eventsDone := make(chan struct{})
+	go func() {
+		defer close(eventsDone)
+		for e := range l.Events() {
+			mu.Lock()
+			events = append(events, e)
+			mu.Unlock()
+		}
+	}()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- l.Run(ctx)
+	}()
+
+	// Wait for EventRateLimitWaiting (loop is now blocked for 1 minute)
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for EventRateLimitWaiting")
+		default:
+		}
+		mu.Lock()
+		found := false
+		for _, e := range events {
+			if e.Type == EventRateLimitWaiting {
+				found = true
+			}
+		}
+		mu.Unlock()
+		if found {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// Simulate Manager.Stop(): set stopped flag then cancel context
+	l.Stop()
+	cancel()
+
+	// Loop must exit in well under 1 minute
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Errorf("expected Run() to return nil after deliberate Stop, got: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Loop.Run() did not exit after Stop()+cancel() - ctx.Done() path did not respect l.stopped")
+	}
+
+	<-eventsDone
+
+	// No EventError should be emitted for a deliberate stop
+	mu.Lock()
+	defer mu.Unlock()
+	for _, e := range events {
+		if e.Type == EventError {
+			t.Errorf("unexpected EventError emitted during deliberate Stop: %v", e.Err)
+		}
+	}
+}

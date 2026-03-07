@@ -216,8 +216,8 @@ func (m *Manager) Unregister(name string) error {
 		return fmt.Errorf("PRD %s not found", name)
 	}
 
-	// Stop if running
-	if instance.State == LoopStateRunning {
+	// Stop if running or waiting on rate-limit
+	if instance.State == LoopStateRunning || instance.State == LoopStateRateLimitWaiting {
 		m.Stop(name)
 	}
 
@@ -398,7 +398,7 @@ func (m *Manager) Stop(name string) error {
 	instance.mu.Lock()
 	defer instance.mu.Unlock()
 
-	if instance.State != LoopStateRunning && instance.State != LoopStatePaused {
+	if instance.State != LoopStateRunning && instance.State != LoopStatePaused && instance.State != LoopStateRateLimitWaiting {
 		return nil // Already stopped
 	}
 

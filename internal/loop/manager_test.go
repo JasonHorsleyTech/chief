@@ -611,3 +611,75 @@ func TestManagerConcurrentAccessWithWorktreeFields(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestManagerStopRateLimitWaiting verifies that Stop() cancels a loop that is in
+// LoopStateRateLimitWaiting (previously it returned early without cancelling).
+func TestManagerStopRateLimitWaiting(t *testing.T) {
+	tmpDir := t.TempDir()
+	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
+
+	m := NewManager(10)
+	if err := m.Register("test-prd", prdPath); err != nil {
+		t.Fatal(err)
+	}
+
+	// GetInstance returns a copy; access the real instance directly (same package).
+	m.mu.RLock()
+	realInstance := m.instances["test-prd"]
+	m.mu.RUnlock()
+	if realInstance == nil {
+		t.Fatal("expected instance to exist")
+	}
+
+	// Manually set state to RateLimitWaiting to simulate a waiting loop
+	realInstance.mu.Lock()
+	realInstance.State = LoopStateRateLimitWaiting
+	realInstance.mu.Unlock()
+
+	// Stop should now work (not silently return nil without doing anything)
+	if err := m.Stop("test-prd"); err != nil {
+		t.Fatalf("Stop() returned error: %v", err)
+	}
+
+	realInstance.mu.Lock()
+	state := realInstance.State
+	realInstance.mu.Unlock()
+
+	if state != LoopStateStopped {
+		t.Errorf("expected state Stopped after Stop(), got %v", state)
+	}
+}
+
+// TestManagerUnregisterRateLimitWaiting verifies that Unregister() stops a loop
+// that is in LoopStateRateLimitWaiting (previously it skipped the stop call).
+func TestManagerUnregisterRateLimitWaiting(t *testing.T) {
+	tmpDir := t.TempDir()
+	prdPath := createTestPRDWithName(t, tmpDir, "test-prd")
+
+	m := NewManager(10)
+	if err := m.Register("test-prd", prdPath); err != nil {
+		t.Fatal(err)
+	}
+
+	// GetInstance returns a copy; access the real instance directly (same package).
+	m.mu.RLock()
+	realInstance := m.instances["test-prd"]
+	m.mu.RUnlock()
+	if realInstance == nil {
+		t.Fatal("expected instance to exist")
+	}
+
+	// Manually set state to RateLimitWaiting to simulate a waiting loop
+	realInstance.mu.Lock()
+	realInstance.State = LoopStateRateLimitWaiting
+	realInstance.mu.Unlock()
+
+	// Unregister should stop the loop and remove it
+	if err := m.Unregister("test-prd"); err != nil {
+		t.Fatalf("Unregister() returned error: %v", err)
+	}
+
+	if m.GetInstance("test-prd") != nil {
+		t.Error("expected instance to be removed after Unregister()")
+	}
+}

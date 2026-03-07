@@ -213,9 +213,15 @@ func (l *Loop) Run(ctx context.Context) error {
 			return err
 		}
 
-		// Check context cancellation
+		// Check context cancellation (return nil if stopped deliberately)
 		select {
 		case <-ctx.Done():
+			l.mu.Lock()
+			stopped := l.stopped
+			l.mu.Unlock()
+			if stopped {
+				return nil
+			}
 			return ctx.Err()
 		default:
 		}
@@ -309,6 +315,13 @@ func (l *Loop) runIterationWithRetry(ctx context.Context) error {
 		select {
 		case <-time.After(time.Duration(rlConfig.RetryIntervalMinutes) * time.Minute):
 		case <-ctx.Done():
+			// Return nil if stopped deliberately so no EventError is emitted
+			l.mu.Lock()
+			stopped = l.stopped
+			l.mu.Unlock()
+			if stopped {
+				return nil
+			}
 			return ctx.Err()
 		}
 
