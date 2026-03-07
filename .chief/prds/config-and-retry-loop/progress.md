@@ -49,3 +49,13 @@
   - `printHelp()` in `cmd/chief/main.go` is a raw multi-line string literal — edits are straightforward text additions
   - The `config` subcommand was already wired in `findSubcmd()` switch but not mentioned in the help output; always keep Commands list in sync with the switch cases
 ---
+
+## 2026-03-07 - US-005
+- What was implemented: Wired `PromptsDir` config field as a fallback in `runTUIWithOptions`, `runNew`, and `runEdit` in `cmd/chief/main.go`. When no `--prompts-dir` CLI flag is provided, the config is loaded from cwd and `cfg.PromptsDir` is used if it exists and is a valid directory. CLI flag still takes precedence when both are set.
+- Files changed: `cmd/chief/main.go`, `.chief/prds/config-and-retry-loop/prd.json`
+- **Learnings for future iterations:**
+  - The `config` package is already imported in `main.go` — no new imports needed when adding config loading
+  - `runTUIWithOptions` is called recursively for post-exit TUI restarts; setting `opts.PromptsDir` early in the function means it propagates through all recursive calls correctly
+  - Config-based `PromptsDir` should be validated with `os.Stat` (same as CLI path) to silently ignore misconfigured/missing paths
+  - The three places to wire prompts dir: `runTUIWithOptions` (TUI mode), `runNew` (new PRD creation), `runEdit` (PRD editing)
+---
