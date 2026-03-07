@@ -452,6 +452,23 @@ func runConfig() {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+	case "init":
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		force := false
+		for _, arg := range remaining {
+			if arg == "--force" {
+				force = true
+			}
+		}
+		opts := cmd.ConfigInitOptions{BaseDir: cwd, Force: force}
+		if err := cmd.RunConfigInit(opts); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "Error: unknown config subcommand: %s\n", subCmd)
 		fmt.Fprintf(os.Stderr, "Run 'chief config --help' for usage.\n")
