@@ -109,6 +109,9 @@ func main() {
 	case "update":
 		runUpdate()
 		return
+	case "config":
+		runConfig()
+		return
 	case "init-prompts":
 		runInitPrompts()
 		return
@@ -404,6 +407,68 @@ func runInitPrompts() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runConfig() {
+	// Find position of "config" in os.Args
+	configIdx := -1
+	for i := 1; i < len(os.Args); i++ {
+		if os.Args[i] == "config" {
+			configIdx = i
+			break
+		}
+	}
+	remaining := os.Args[0:0]
+	if configIdx >= 0 {
+		remaining = os.Args[configIdx+1:]
+	}
+
+	// Check for --help
+	for _, arg := range remaining {
+		if arg == "--help" || arg == "-h" {
+			printConfigHelp()
+			return
+		}
+	}
+
+	// Get first positional sub-subcommand (if any)
+	subCmd := ""
+	for _, arg := range remaining {
+		if !strings.HasPrefix(arg, "-") {
+			subCmd = arg
+			break
+		}
+	}
+
+	switch subCmd {
+	case "":
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		opts := cmd.ConfigOptions{BaseDir: cwd}
+		if err := cmd.RunConfig(opts); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintf(os.Stderr, "Error: unknown config subcommand: %s\n", subCmd)
+		fmt.Fprintf(os.Stderr, "Run 'chief config --help' for usage.\n")
+		os.Exit(1)
+	}
+}
+
+func printConfigHelp() {
+	fmt.Println(`chief config - View and manage configuration
+
+Usage:
+  chief config             Print current config as YAML
+  chief config init        Create a default config file (.chief/config.yaml)
+  chief config --help      Show this help message
+
+The config file is stored at .chief/config.yaml in your project directory.
+Run 'chief config' to view settings, 'chief config init' to create a config file.`)
 }
 
 func runTUIWithOptions(opts *TUIOptions) {
