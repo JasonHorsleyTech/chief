@@ -3,6 +3,7 @@ package loop
 import (
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 // EventType represents the type of event parsed from Claude's stream-json output.
@@ -33,6 +34,8 @@ const (
 	EventRetrying
 	// EventWatchdogTimeout is emitted when the watchdog kills a hung process.
 	EventWatchdogTimeout
+	// EventRateLimitWaiting is emitted when the loop is waiting to retry after a rate-limit error.
+	EventRateLimitWaiting
 )
 
 // String returns the string representation of an EventType.
@@ -60,6 +63,8 @@ func (e EventType) String() string {
 		return "Retrying"
 	case EventWatchdogTimeout:
 		return "WatchdogTimeout"
+	case EventRateLimitWaiting:
+		return "RateLimitWaiting"
 	default:
 		return "Unknown"
 	}
@@ -67,15 +72,18 @@ func (e EventType) String() string {
 
 // Event represents a parsed event from Claude's stream-json output.
 type Event struct {
-	Type       EventType
-	Iteration  int
-	Text       string
-	Tool       string
-	ToolInput  map[string]interface{}
-	StoryID    string
-	Err        error
-	RetryCount int // Current retry attempt (1-based)
-	RetryMax   int // Maximum retries allowed
+	Type          EventType
+	Iteration     int
+	Text          string
+	Tool          string
+	ToolInput     map[string]interface{}
+	StoryID       string
+	Err           error
+	RetryCount    int       // Current retry attempt (1-based)
+	RetryMax      int       // Maximum retries allowed
+	RetryAt       time.Time // Time when the rate-limit wait will end (EventRateLimitWaiting)
+	AttemptNumber int       // Current rate-limit retry attempt number (EventRateLimitWaiting)
+	MaxAttempts   int       // Maximum rate-limit retry attempts (EventRateLimitWaiting)
 }
 
 // streamMessage represents the top-level structure of a stream-json line.

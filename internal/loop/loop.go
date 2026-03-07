@@ -22,9 +22,16 @@ import (
 
 // RetryConfig configures automatic retry behavior on Claude crashes.
 type RetryConfig struct {
-	MaxRetries  int           // Maximum number of retry attempts (default: 3)
+	MaxRetries  int             // Maximum number of retry attempts (default: 3)
 	RetryDelays []time.Duration // Delays between retries (default: 0s, 5s, 15s)
-	Enabled     bool          // Whether retry is enabled (default: true)
+	Enabled     bool            // Whether retry is enabled (default: true)
+}
+
+// RateLimitRetryConfig configures automatic retry behavior on API rate-limit errors.
+type RateLimitRetryConfig struct {
+	Enabled              bool // Whether rate-limit retry is enabled (default: false)
+	MaxRetries           int  // Maximum number of rate-limit retry attempts (default: 3)
+	RetryIntervalMinutes int  // Minutes to wait between rate-limit retries (default: 60)
 }
 
 // DefaultWatchdogTimeout is the default duration of silence before the watchdog kills a hung process.
@@ -39,6 +46,16 @@ func DefaultRetryConfig() RetryConfig {
 	}
 }
 
+// DefaultRateLimitRetryConfig returns the default rate-limit retry configuration.
+// Rate-limit retry is disabled by default; it must be explicitly enabled via config.
+func DefaultRateLimitRetryConfig() RateLimitRetryConfig {
+	return RateLimitRetryConfig{
+		Enabled:              false,
+		MaxRetries:           3,
+		RetryIntervalMinutes: 60,
+	}
+}
+
 // Loop manages the core agent loop that invokes Claude repeatedly until all stories are complete.
 type Loop struct {
 	prdPath      string
@@ -50,23 +67,26 @@ type Loop struct {
 	events       chan Event
 	claudeCmd    *exec.Cmd
 	logFile      *os.File
-	mu               sync.Mutex
-	stopped          bool
-	paused           bool
-	retryConfig      RetryConfig
-	lastOutputTime   time.Time
-	watchdogTimeout  time.Duration
+	mu                    sync.Mutex
+	stopped               bool
+	paused                bool
+	retryConfig           RetryConfig
+	rateLimitRetryConfig  RateLimitRetryConfig
+	rateLimitDetected     bool
+	lastOutputTime        time.Time
+	watchdogTimeout       time.Duration
 }
 
 // NewLoop creates a new Loop instance.
 func NewLoop(prdPath, prompt string, maxIter int) *Loop {
 	return &Loop{
-		prdPath:         prdPath,
-		prompt:          prompt,
-		maxIter:         maxIter,
-		events:          make(chan Event, 100),
-		retryConfig:     DefaultRetryConfig(),
-		watchdogTimeout: DefaultWatchdogTimeout,
+		prdPath:              prdPath,
+		prompt:               prompt,
+		maxIter:              maxIter,
+		events:               make(chan Event, 100),
+		retryConfig:          DefaultRetryConfig(),
+		rateLimitRetryConfig: DefaultRateLimitRetryConfig(),
+		watchdogTimeout:      DefaultWatchdogTimeout,
 	}
 }
 
@@ -74,13 +94,14 @@ func NewLoop(prdPath, prompt string, maxIter int) *Loop {
 // When workDir is empty, defaults to the project root for backward compatibility.
 func NewLoopWithWorkDir(prdPath, workDir string, prompt string, maxIter int) *Loop {
 	return &Loop{
-		prdPath:         prdPath,
-		workDir:         workDir,
-		prompt:          prompt,
-		maxIter:         maxIter,
-		events:          make(chan Event, 100),
-		retryConfig:     DefaultRetryConfig(),
-		watchdogTimeout: DefaultWatchdogTimeout,
+		prdPath:              prdPath,
+		workDir:              workDir,
+		prompt:               prompt,
+		maxIter:              maxIter,
+		events:               make(chan Event, 100),
+		retryConfig:          DefaultRetryConfig(),
+		rateLimitRetryConfig: DefaultRateLimitRetryConfig(),
+		watchdogTimeout:      DefaultWatchdogTimeout,
 	}
 }
 
@@ -183,7 +204,7 @@ func (l *Loop) Run(ctx context.Context) error {
 			Iteration: currentIter,
 		}
 
-		// Run a single iteration with retry logic
+		// Run a single iteration with retry logic (including rate-limit retry)
 		if err := l.runIterationWithRetry(ctx); err != nil {
 			l.events <- Event{
 				Type: EventError,
@@ -227,8 +248,84 @@ func (l *Loop) Run(ctx context.Context) error {
 	}
 }
 
-// runIterationWithRetry wraps runIteration with retry logic for crash recovery.
+// runIterationWithRetry wraps runIteration with both crash retry and rate-limit retry logic.
+// Rate-limit retry is the outer loop; crash retry is the inner loop.
 func (l *Loop) runIterationWithRetry(ctx context.Context) error {
+	l.mu.Lock()
+	rlConfig := l.rateLimitRetryConfig
+	l.mu.Unlock()
+
+	for rlAttempt := 0; ; rlAttempt++ {
+		// Reset rate-limit detection flag before each attempt
+		l.mu.Lock()
+		l.rateLimitDetected = false
+		l.mu.Unlock()
+
+		// Run crash retry inner loop
+		err := l.runIterationWithCrashRetry(ctx)
+		if err == nil {
+			return nil
+		}
+
+		// Check context cancellation
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		// Check if stopped intentionally
+		l.mu.Lock()
+		stopped := l.stopped
+		isRateLimit := l.rateLimitDetected
+		l.mu.Unlock()
+		if stopped {
+			return nil
+		}
+
+		// If not a rate-limit error or rate-limit retry is disabled, return error
+		if !isRateLimit || !rlConfig.Enabled {
+			return err
+		}
+
+		// Rate-limit retries exhausted
+		if rlAttempt >= rlConfig.MaxRetries {
+			return fmt.Errorf("max rate limit retries (%d) exceeded: %w", rlConfig.MaxRetries, err)
+		}
+
+		// Emit rate-limit waiting event
+		retryAt := time.Now().Add(time.Duration(rlConfig.RetryIntervalMinutes) * time.Minute)
+		l.mu.Lock()
+		iter := l.iteration
+		l.mu.Unlock()
+		l.events <- Event{
+			Type:          EventRateLimitWaiting,
+			Iteration:     iter,
+			AttemptNumber: rlAttempt + 1,
+			MaxAttempts:   rlConfig.MaxRetries,
+			RetryAt:       retryAt,
+			Text:          fmt.Sprintf("Rate limit detected, waiting %d min before retry (attempt %d/%d)", rlConfig.RetryIntervalMinutes, rlAttempt+1, rlConfig.MaxRetries),
+		}
+
+		// Wait for retry interval
+		select {
+		case <-time.After(time.Duration(rlConfig.RetryIntervalMinutes) * time.Minute):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+
+		// Check if stopped during wait
+		l.mu.Lock()
+		stopped = l.stopped
+		l.mu.Unlock()
+		if stopped {
+			return nil
+		}
+	}
+}
+
+// runIterationWithCrashRetry wraps runIteration with retry logic for crash recovery.
+// It breaks out early if a rate-limit error is detected, deferring to the outer
+// rate-limit retry loop in runIterationWithRetry.
+func (l *Loop) runIterationWithCrashRetry(ctx context.Context) error {
 	l.mu.Lock()
 	config := l.retryConfig
 	l.mu.Unlock()
@@ -292,9 +389,16 @@ func (l *Loop) runIterationWithRetry(ctx context.Context) error {
 		// Check if stopped intentionally
 		l.mu.Lock()
 		stopped := l.stopped
+		isRateLimit := l.rateLimitDetected
 		l.mu.Unlock()
 		if stopped {
 			return nil
+		}
+
+		// If a rate-limit error was detected, break out immediately
+		// so the outer rate-limit retry loop can handle the wait.
+		if isRateLimit {
+			return err
 		}
 
 		lastErr = err
@@ -462,6 +566,13 @@ func (l *Loop) processOutput(r io.Reader) {
 		// Log raw output
 		l.logLine(line)
 
+		// Check for rate-limit patterns in raw output
+		if IsRateLimitError(line) {
+			l.mu.Lock()
+			l.rateLimitDetected = true
+			l.mu.Unlock()
+		}
+
 		// Parse the line and emit event if valid
 		if event := ParseLine(line); event != nil {
 			l.mu.Lock()
@@ -570,6 +681,20 @@ func (l *Loop) DisableRetry() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.retryConfig.Enabled = false
+}
+
+// SetRateLimitRetryConfig updates the rate-limit retry configuration.
+func (l *Loop) SetRateLimitRetryConfig(config RateLimitRetryConfig) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rateLimitRetryConfig = config
+}
+
+// GetRateLimitRetryConfig returns the current rate-limit retry configuration.
+func (l *Loop) GetRateLimitRetryConfig() RateLimitRetryConfig {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.rateLimitRetryConfig
 }
 
 // SetWatchdogTimeout sets the watchdog timeout duration.

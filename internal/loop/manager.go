@@ -20,6 +20,7 @@ const (
 	LoopStateStopped
 	LoopStateComplete
 	LoopStateError
+	LoopStateRateLimitWaiting
 )
 
 func (s LoopState) String() string {
@@ -36,6 +37,8 @@ func (s LoopState) String() string {
 		return "Complete"
 	case LoopStateError:
 		return "Error"
+	case LoopStateRateLimitWaiting:
+		return "RateLimitWaiting"
 	default:
 		return "Unknown"
 	}
@@ -66,26 +69,28 @@ type ManagerEvent struct {
 
 // Manager manages multiple Loop instances for parallel PRD execution.
 type Manager struct {
-	instances   map[string]*LoopInstance
-	events      chan ManagerEvent
-	maxIter     int
-	retryConfig RetryConfig
-	baseDir        string                               // Project root directory (for CLAUDE.md etc.)
-	promptsDir     string                               // Directory for prompt overrides (empty = use embedded)
-	config         *config.Config                       // Project config for post-completion actions
-	mu             sync.RWMutex
-	wg             sync.WaitGroup
-	onComplete     func(prdName string)                  // Callback when a PRD completes
-	onPostComplete func(prdName, branch, workDir string) // Callback for post-completion actions (push, PR)
+	instances            map[string]*LoopInstance
+	events               chan ManagerEvent
+	maxIter              int
+	retryConfig          RetryConfig
+	rateLimitRetryConfig RateLimitRetryConfig
+	baseDir              string                               // Project root directory (for CLAUDE.md etc.)
+	promptsDir           string                               // Directory for prompt overrides (empty = use embedded)
+	config               *config.Config                       // Project config for post-completion actions
+	mu                   sync.RWMutex
+	wg                   sync.WaitGroup
+	onComplete           func(prdName string)                  // Callback when a PRD completes
+	onPostComplete       func(prdName, branch, workDir string) // Callback for post-completion actions (push, PR)
 }
 
 // NewManager creates a new loop manager.
 func NewManager(maxIter int) *Manager {
 	return &Manager{
-		instances:   make(map[string]*LoopInstance),
-		events:      make(chan ManagerEvent, 100),
-		maxIter:     maxIter,
-		retryConfig: DefaultRetryConfig(),
+		instances:            make(map[string]*LoopInstance),
+		events:               make(chan ManagerEvent, 100),
+		maxIter:              maxIter,
+		retryConfig:          DefaultRetryConfig(),
+		rateLimitRetryConfig: DefaultRateLimitRetryConfig(),
 	}
 }
 
@@ -135,10 +140,18 @@ func (m *Manager) SetPromptsDir(promptsDir string) {
 }
 
 // SetConfig sets the project config for post-completion actions.
+// It also derives the rate-limit retry configuration from the config fields.
 func (m *Manager) SetConfig(cfg *config.Config) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.config = cfg
+	if cfg != nil {
+		m.rateLimitRetryConfig = RateLimitRetryConfig{
+			Enabled:              cfg.RetryOnRateLimit,
+			MaxRetries:           cfg.MaxRateLimitRetries,
+			RetryIntervalMinutes: cfg.RetryIntervalMinutes,
+		}
+	}
 }
 
 // Config returns the current project config.
@@ -244,6 +257,7 @@ func (m *Manager) Start(name string) error {
 	m.mu.RLock()
 	instance.Loop.buildPrompt = promptBuilderForPRD(instance.PRDPath, m.promptsDir)
 	instance.Loop.SetRetryConfig(m.retryConfig)
+	instance.Loop.SetRateLimitRetryConfig(m.rateLimitRetryConfig)
 	m.mu.RUnlock()
 	instance.ctx, instance.cancel = context.WithCancel(context.Background())
 	instance.State = LoopStateRunning
@@ -275,6 +289,15 @@ func (m *Manager) runLoop(instance *LoopInstance) {
 
 				instance.mu.Lock()
 				instance.Iteration = event.Iteration
+				// Update state based on rate-limit events
+				switch event.Type {
+				case EventRateLimitWaiting:
+					instance.State = LoopStateRateLimitWaiting
+				case EventRetrying, EventIterationStart:
+					if instance.State == LoopStateRateLimitWaiting {
+						instance.State = LoopStateRunning
+					}
+				}
 				instance.mu.Unlock()
 
 				// Check if this is a completion event

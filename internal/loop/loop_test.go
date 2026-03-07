@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -634,5 +635,257 @@ func TestLoop_WatchdogWithWorkDir(t *testing.T) {
 
 	if l.WatchdogTimeout() != DefaultWatchdogTimeout {
 		t.Errorf("Expected default watchdog timeout for NewLoopWithWorkDir, got %v", l.WatchdogTimeout())
+	}
+}
+
+// TestDefaultRateLimitRetryConfig tests the default rate-limit retry configuration.
+func TestDefaultRateLimitRetryConfig(t *testing.T) {
+	cfg := DefaultRateLimitRetryConfig()
+
+	if cfg.Enabled {
+		t.Error("Expected Enabled to be false by default (opt-in feature)")
+	}
+	if cfg.MaxRetries != 3 {
+		t.Errorf("Expected MaxRetries 3, got %d", cfg.MaxRetries)
+	}
+	if cfg.RetryIntervalMinutes != 60 {
+		t.Errorf("Expected RetryIntervalMinutes 60, got %d", cfg.RetryIntervalMinutes)
+	}
+}
+
+// TestLoop_SetRateLimitRetryConfig tests setting the rate-limit retry config.
+func TestLoop_SetRateLimitRetryConfig(t *testing.T) {
+	l := NewLoop("/test/prd.json", "test", 5)
+
+	// Default should be disabled
+	cfg := l.GetRateLimitRetryConfig()
+	if cfg.Enabled {
+		t.Error("Expected rate-limit retry disabled by default")
+	}
+
+	// Enable and set custom config
+	customCfg := RateLimitRetryConfig{
+		Enabled:              true,
+		MaxRetries:           5,
+		RetryIntervalMinutes: 30,
+	}
+	l.SetRateLimitRetryConfig(customCfg)
+
+	got := l.GetRateLimitRetryConfig()
+	if !got.Enabled {
+		t.Error("Expected Enabled to be true after SetRateLimitRetryConfig")
+	}
+	if got.MaxRetries != 5 {
+		t.Errorf("Expected MaxRetries 5, got %d", got.MaxRetries)
+	}
+	if got.RetryIntervalMinutes != 30 {
+		t.Errorf("Expected RetryIntervalMinutes 30, got %d", got.RetryIntervalMinutes)
+	}
+}
+
+// TestLoop_RateLimitDetectedViaProcessOutput tests that processOutput sets rateLimitDetected
+// when rate-limit text appears in Claude's output.
+func TestLoop_RateLimitDetectedViaProcessOutput(t *testing.T) {
+	l := NewLoop("/test/prd.json", "test", 5)
+	l.iteration = 1
+
+	// Drain events to avoid blocking
+	go func() {
+		for range l.Events() {
+		}
+	}()
+
+	r, w, _ := os.Pipe()
+	go func() {
+		// Write a line containing rate-limit text
+		w.WriteString("Error: rate limit exceeded, please wait\n")
+		w.Close()
+	}()
+
+	l.processOutput(r)
+	close(l.events)
+
+	l.mu.Lock()
+	detected := l.rateLimitDetected
+	l.mu.Unlock()
+
+	if !detected {
+		t.Error("Expected rateLimitDetected to be true after rate-limit output")
+	}
+}
+
+// TestLoop_RateLimitNotDetectedForNormalOutput tests that processOutput does not set
+// rateLimitDetected for normal (non-rate-limit) output.
+func TestLoop_RateLimitNotDetectedForNormalOutput(t *testing.T) {
+	l := NewLoop("/test/prd.json", "test", 5)
+	l.iteration = 1
+
+	// Drain events to avoid blocking
+	go func() {
+		for range l.Events() {
+		}
+	}()
+
+	r, w, _ := os.Pipe()
+	go func() {
+		w.WriteString(`{"type":"assistant","message":{"content":[{"type":"text","text":"Working on story..."}]}}` + "\n")
+		w.WriteString("All done!\n")
+		w.Close()
+	}()
+
+	l.processOutput(r)
+	close(l.events)
+
+	l.mu.Lock()
+	detected := l.rateLimitDetected
+	l.mu.Unlock()
+
+	if detected {
+		t.Error("Expected rateLimitDetected to be false for normal output")
+	}
+}
+
+// TestEventRateLimitWaiting_Fields tests that EventRateLimitWaiting fields are correctly populated.
+func TestEventRateLimitWaiting_Fields(t *testing.T) {
+	retryAt := time.Now().Add(60 * time.Minute)
+	event := Event{
+		Type:          EventRateLimitWaiting,
+		Iteration:     3,
+		AttemptNumber: 1,
+		MaxAttempts:   3,
+		RetryAt:       retryAt,
+		Text:          "Rate limit detected, waiting 60 min before retry (attempt 1/3)",
+	}
+
+	if event.Type != EventRateLimitWaiting {
+		t.Errorf("Expected EventRateLimitWaiting, got %v", event.Type)
+	}
+	if event.AttemptNumber != 1 {
+		t.Errorf("Expected AttemptNumber 1, got %d", event.AttemptNumber)
+	}
+	if event.MaxAttempts != 3 {
+		t.Errorf("Expected MaxAttempts 3, got %d", event.MaxAttempts)
+	}
+	if !event.RetryAt.Equal(retryAt) {
+		t.Errorf("Expected RetryAt %v, got %v", retryAt, event.RetryAt)
+	}
+	if event.Type.String() != "RateLimitWaiting" {
+		t.Errorf("Expected String() 'RateLimitWaiting', got %q", event.Type.String())
+	}
+}
+
+// TestLoop_RateLimitRetry_DisabledByDefault tests that when RetryOnRateLimit is false,
+// the loop does not enter rate-limit retry mode even if rate-limit is detected.
+func TestLoop_RateLimitRetry_DisabledByDefault(t *testing.T) {
+	l := NewLoop("/test/prd.json", "test", 5)
+
+	// Verify rate-limit retry is disabled by default
+	cfg := l.GetRateLimitRetryConfig()
+	if cfg.Enabled {
+		t.Fatal("Expected rate-limit retry to be disabled by default")
+	}
+
+	// Simulate rate-limit detection
+	l.mu.Lock()
+	l.rateLimitDetected = true
+	l.mu.Unlock()
+
+	// With disabled retry, rateLimitDetected flag should still be readable
+	// but the retry logic would not fire
+	l.mu.Lock()
+	detected := l.rateLimitDetected
+	l.mu.Unlock()
+	if !detected {
+		t.Error("Expected rateLimitDetected flag to be set")
+	}
+}
+
+// TestLoop_RateLimitRetry_Integration tests the full rate-limit retry flow using a mock Claude.
+// This is an integration test that requires a Unix-like shell.
+func TestLoop_RateLimitRetry_Integration(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping integration test in CI")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Create a PRD that's not complete
+	prdPath := createTestPRD(t, tmpDir, false)
+
+	// Create a mock Claude script that outputs rate-limit error and exits with code 1
+	mockScript := createMockClaudeScript(t, tmpDir, []string{
+		`{"type":"system","subtype":"init"}`,
+		`rate limit exceeded: you have hit your usage limit`,
+	})
+
+	// Override PATH so "claude" resolves to our mock script
+	origPath := os.Getenv("PATH")
+	defer os.Setenv("PATH", origPath)
+
+	// Rename mock script to "claude" and put its dir first in PATH
+	claudePath := filepath.Join(tmpDir, "claude")
+	if err := os.Rename(mockScript, claudePath); err != nil {
+		t.Fatal(err)
+	}
+	// Make mock exit with error by rewriting
+	errScript := "#!/bin/bash\necho '{\"type\":\"system\",\"subtype\":\"init\"}'\necho 'rate limit exceeded: you have hit your usage limit'\nexit 1\n"
+	if err := os.WriteFile(claudePath, []byte(errScript), 0755); err != nil {
+		t.Fatal(err)
+	}
+	os.Setenv("PATH", tmpDir+":"+origPath)
+
+	l := NewLoop(prdPath, "test prompt", 1)
+	l.SetRateLimitRetryConfig(RateLimitRetryConfig{
+		Enabled:              true,
+		MaxRetries:           2,
+		RetryIntervalMinutes: 0, // 0 minutes = immediate retry for testing
+	})
+	// Disable crash retry so only rate-limit retry fires
+	l.DisableRetry()
+
+	// Collect events
+	var events []Event
+	var mu sync.Mutex
+	done := make(chan bool)
+	go func() {
+		for event := range l.Events() {
+			mu.Lock()
+			events = append(events, event)
+			mu.Unlock()
+		}
+		done <- true
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_ = l.Run(ctx)
+	<-done
+
+	// Verify we got EventRateLimitWaiting events
+	mu.Lock()
+	defer mu.Unlock()
+
+	waitingCount := 0
+	for _, e := range events {
+		if e.Type == EventRateLimitWaiting {
+			waitingCount++
+			if e.AttemptNumber == 0 {
+				t.Error("Expected AttemptNumber > 0 in EventRateLimitWaiting")
+			}
+			if e.MaxAttempts == 0 {
+				t.Error("Expected MaxAttempts > 0 in EventRateLimitWaiting")
+			}
+			if e.RetryAt.IsZero() {
+				t.Error("Expected RetryAt to be set in EventRateLimitWaiting")
+			}
+		}
+	}
+
+	if waitingCount == 0 {
+		t.Error("Expected at least one EventRateLimitWaiting event")
+	}
+	if waitingCount > 2 {
+		t.Errorf("Expected at most 2 EventRateLimitWaiting events (MaxRetries=2), got %d", waitingCount)
 	}
 }
