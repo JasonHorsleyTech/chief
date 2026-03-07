@@ -4,6 +4,11 @@
 - `EventRateLimitWaiting` carries `RetryAt time.Time`, `AttemptNumber int`, `MaxAttempts int` fields; zero-valued for all other event types
 - `LoopStateRateLimitWaiting` added to `LoopState` enum in `manager.go`; manager sets it on `EventRateLimitWaiting` and resets to `LoopStateRunning` on `EventRetrying`/`EventIterationStart`
 - `Manager.SetConfig()` derives `rateLimitRetryConfig` from `config.Config` fields automatically
+- TUI `AppState` enum mirrors `LoopState` but is separate; `StateRateLimitWaiting` added to `AppState` in `internal/tui/app.go`
+- TUI countdown uses `rateLimitCountdownTickMsg` (1s tick) stored as `extraCmd` in `handleLoopEvent`; `extraCmd` is batched with `listenForManagerEvents()` at the end of the function
+- `renderDetailsPanel` checks `a.state == StateRateLimitWaiting` before error state to show the countdown panel
+- Activity line countdown text is computed fresh from `time.Until(a.rateLimitRetryAt)` on every render — no stored countdown value needed
+- When transitioning back from `StateRateLimitWaiting` (on `EventRetrying` or `EventIterationStart`), `tickElapsed()` is restarted via `extraCmd` because the elapsed ticker stops when state is not `StateRunning`
 
 
 - Config struct is in `internal/config/config.go`; tests are in `config_test.go` in the same package
@@ -75,6 +80,16 @@
   - `time.After(0)` fires immediately — setting `RetryIntervalMinutes: 0` enables fast integration tests
   - `LoopStateRateLimitWaiting` is set by the manager's event forwarding goroutine based on `EventRateLimitWaiting`; it reverts to `LoopStateRunning` on next `EventRetrying` or `EventIterationStart`
   - US-008 (TUI countdown) will react to `EventRateLimitWaiting` events and use `RetryAt` to compute the countdown
+---
+
+## 2026-03-07 - US-008
+- What was implemented: Added rate-limit countdown display to the TUI. Added `StateRateLimitWaiting` to `AppState` enum with its `String()`, styles, and activity/state style mappings. Added `rateLimitRetryAt`, `rateLimitAttemptNumber`, `rateLimitMaxAttempts` fields to `App` struct. Added `rateLimitCountdownTickMsg` type and `tickRateLimitCountdown()` function (1s tick). Handles `EventRateLimitWaiting` in `handleLoopEvent` to set state and start tick; handles transition back on `EventRetrying`/`EventIterationStart`. Dashboard activity line and narrow activity line show "Rate limit — retrying in H:MM:SS  (Attempt N/M)" when in waiting state. Details panel shows a `renderRateLimitPanel` with countdown and attempt info. Log viewer displays rate-limit waiting events with ⏳ prefix. Footer shortcuts adapted for the waiting state.
+- Files changed: `internal/tui/app.go`, `internal/tui/styles.go`, `internal/tui/dashboard.go`, `internal/tui/log.go`, `.chief/prds/config-and-retry-loop/prd.json`
+- **Learnings for future iterations:**
+  - Use `extraCmd tea.Cmd` local variable in `handleLoopEvent` and batch it at the end with `tea.Batch(a.listenForManagerEvents(), autoActionCmd, extraCmd)` — `tea.Batch` handles nil commands
+  - Countdown text is computed via `time.Until(a.rateLimitRetryAt)` on every render — no need to store a countdown value
+  - The `elapsedTickMsg` handler only re-arms when `a.state == StateRunning`; when coming back from rate-limit waiting, explicitly restart it via `extraCmd = tickElapsed()`
+  - `renderDetailsPanel` should check rate-limit state before error state to avoid hiding the countdown behind the error panel
 ---
 
 ## 2026-03-07 - US-005

@@ -114,7 +114,7 @@
         "Other PRDs/loops continue running normally and are not blocked by a waiting loop"
       ],
       "priority": 8,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-009",
