@@ -261,6 +261,8 @@ func (a *App) renderFooter() string {
 			shortcuts = []string{"p: pause", "x: stop", "d: diff", "t: log", "n: new", "l: list", "1-9: switch", "?: help", "q: quit"}
 		case StateStopped, StateError:
 			shortcuts = []string{"s: retry", "d: diff", "e: edit", "t: log", "n: new", "l: list", "1-9: switch", "?: help", "q: quit"}
+		case StateRateLimitWaiting:
+			shortcuts = []string{"d: diff", "t: log", "n: new", "l: list", "1-9: switch", "?: help", "q: quit"}
 		default:
 			shortcuts = []string{"d: diff", "e: edit", "t: log", "n: new", "l: list", "1-9: switch", "?: help", "q: quit"}
 		}
@@ -300,6 +302,8 @@ func (a *App) renderNarrowFooter() string {
 			shortcuts = []string{"p", "x", "t", "n", "1-9", "?", "q"}
 		case StateStopped, StateError:
 			shortcuts = []string{"s", "e", "t", "n", "1-9", "?", "q"}
+		case StateRateLimitWaiting:
+			shortcuts = []string{"t", "n", "1-9", "?", "q"}
 		default:
 			shortcuts = []string{"e", "t", "n", "1-9", "?", "q"}
 		}
@@ -329,9 +333,16 @@ func (a *App) renderNarrowFooter() string {
 
 // renderNarrowActivityLine renders the activity line for narrow terminals.
 func (a *App) renderNarrowActivityLine() string {
-	activity := a.lastActivity
-	if activity == "" {
-		activity = "Ready"
+	var activity string
+	if a.state == StateRateLimitWaiting {
+		remaining := time.Until(a.rateLimitRetryAt)
+		countdown := formatCountdown(remaining)
+		activity = fmt.Sprintf("Rate limit — retrying in %s  (Attempt %d/%d)", countdown, a.rateLimitAttemptNumber, a.rateLimitMaxAttempts)
+	} else {
+		activity = a.lastActivity
+		if activity == "" {
+			activity = "Ready"
+		}
 	}
 
 	// More aggressive truncation for narrow mode
@@ -348,9 +359,16 @@ func (a *App) renderNarrowActivityLine() string {
 
 // renderActivityLine renders the current activity status line.
 func (a *App) renderActivityLine() string {
-	activity := a.lastActivity
-	if activity == "" {
-		activity = "Ready to start"
+	var activity string
+	if a.state == StateRateLimitWaiting {
+		remaining := time.Until(a.rateLimitRetryAt)
+		countdown := formatCountdown(remaining)
+		activity = fmt.Sprintf("Rate limit — retrying in %s  (Attempt %d/%d)", countdown, a.rateLimitAttemptNumber, a.rateLimitMaxAttempts)
+	} else {
+		activity = a.lastActivity
+		if activity == "" {
+			activity = "Ready to start"
+		}
 	}
 
 	// Truncate if too long
@@ -452,6 +470,11 @@ func (a *App) renderDetailsPanel(width, height int) string {
 	// Check for empty PRD state first
 	if len(a.prd.UserStories) == 0 {
 		return a.renderEmptyPRDPanel(width, height)
+	}
+
+	// Check for rate-limit waiting state - show countdown panel
+	if a.state == StateRateLimitWaiting {
+		return a.renderRateLimitPanel(width, height)
 	}
 
 	// Check for error state - show error details instead of story details
@@ -571,6 +594,41 @@ func (a *App) renderErrorPanel(width, height int) string {
 	return panelStyle.Width(width).Height(height).Render(content.String())
 }
 
+// renderRateLimitPanel renders the rate-limit waiting panel with countdown.
+func (a *App) renderRateLimitPanel(width, height int) string {
+	var content strings.Builder
+
+	// Rate-limit header
+	waitIcon := lipgloss.NewStyle().Foreground(WarningColor).Render("◐")
+	waitTitle := StateRateLimitWaitingStyle.Render("RATE LIMIT")
+	content.WriteString(fmt.Sprintf("%s %s\n", waitIcon, waitTitle))
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString("\n\n")
+
+	// Countdown
+	content.WriteString(labelStyle.Render("Retrying in"))
+	content.WriteString("\n")
+	remaining := time.Until(a.rateLimitRetryAt)
+	countdown := formatCountdown(remaining)
+	countdownStyle := lipgloss.NewStyle().Bold(true).Foreground(WarningColor)
+	content.WriteString(countdownStyle.Render(countdown))
+	content.WriteString("\n\n")
+
+	// Attempt info
+	content.WriteString(labelStyle.Render("Attempt"))
+	content.WriteString("\n")
+	content.WriteString(fmt.Sprintf("%d / %d\n", a.rateLimitAttemptNumber, a.rateLimitMaxAttempts))
+	content.WriteString("\n")
+	content.WriteString(DividerStyle.Render(strings.Repeat("─", width-4)))
+	content.WriteString("\n\n")
+
+	// Info
+	infoStyle := lipgloss.NewStyle().Foreground(TextMutedColor)
+	content.WriteString(infoStyle.Render(wrapText("The Claude API rate limit was reached. Chief will automatically retry when the quota resets.", width-4)))
+
+	return panelStyle.Width(width).Height(height).Render(content.String())
+}
+
 // renderEmptyPRDPanel renders a panel when there are no stories in the PRD.
 func (a *App) renderEmptyPRDPanel(width, height int) string {
 	var content strings.Builder
@@ -674,6 +732,17 @@ func (a *App) renderProgressBar(width int) string {
 		progressBarEmptyStyle.Render(strings.Repeat("░", emptyWidth))
 
 	return fmt.Sprintf("%s %3.0f%% %d/%d", bar, percentage, completedStories, totalStories)
+}
+
+// formatCountdown formats a duration as H:MM:SS for rate-limit countdowns.
+func formatCountdown(d time.Duration) string {
+	if d <= 0 {
+		return "0:00:00"
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	return fmt.Sprintf("%d:%02d:%02d", h, m, s)
 }
 
 // formatDuration formats a duration in a human-readable way.

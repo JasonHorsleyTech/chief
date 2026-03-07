@@ -77,7 +77,7 @@ func (l *LogViewer) AddEvent(event loop.Event) {
 	switch event.Type {
 	case loop.EventAssistantText, loop.EventToolStart, loop.EventToolResult,
 		loop.EventStoryStarted, loop.EventComplete, loop.EventError, loop.EventRetrying,
-		loop.EventWatchdogTimeout:
+		loop.EventWatchdogTimeout, loop.EventRateLimitWaiting:
 		// Pre-render and cache lines
 		if l.width > 0 {
 			entry.cachedLines = l.renderEntry(entry)
@@ -364,6 +364,8 @@ func (l *LogViewer) renderEntry(entry LogEntry) []string {
 		return l.renderRetrying(entry)
 	case loop.EventWatchdogTimeout:
 		return l.renderWatchdogTimeout(entry)
+	case loop.EventRateLimitWaiting:
+		return l.renderRateLimitWaiting(entry)
 	default:
 		return l.renderText(entry)
 	}
@@ -631,4 +633,18 @@ func (l *LogViewer) renderWatchdogTimeout(entry LogEntry) []string {
 	}
 
 	return []string{style.Render("⏱ " + text)}
+}
+
+// renderRateLimitWaiting renders a rate-limit waiting message.
+func (l *LogViewer) renderRateLimitWaiting(entry LogEntry) []string {
+	style := lipgloss.NewStyle().
+		Foreground(WarningColor).
+		Bold(true)
+
+	text := entry.Text
+	if text == "" {
+		text = "Rate limit detected, waiting before retry"
+	}
+
+	return []string{style.Render("⏳ " + text)}
 }

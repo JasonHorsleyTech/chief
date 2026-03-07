@@ -36,6 +36,7 @@ const (
 	StateStopped
 	StateComplete
 	StateError
+	StateRateLimitWaiting
 )
 
 func (s AppState) String() string {
@@ -52,6 +53,8 @@ func (s AppState) String() string {
 		return "Complete"
 	case StateError:
 		return "Error"
+	case StateRateLimitWaiting:
+		return "RateLimitWaiting"
 	default:
 		return "Unknown"
 	}
@@ -115,6 +118,9 @@ type worktreeSpinnerTickMsg struct{}
 
 // elapsedTickMsg is sent every second to update the elapsed time display.
 type elapsedTickMsg struct{}
+
+// rateLimitCountdownTickMsg is sent every second to update the rate-limit countdown display.
+type rateLimitCountdownTickMsg struct{}
 
 // settingsGHCheckResultMsg is sent when GH CLI validation completes in settings.
 type settingsGHCheckResultMsg struct {
@@ -220,6 +226,11 @@ type App struct {
 
 	// Completion notification callback
 	onCompletion func(prdName string)
+
+	// Rate-limit waiting state
+	rateLimitRetryAt       time.Time
+	rateLimitAttemptNumber int
+	rateLimitMaxAttempts   int
 
 	// Verbose mode - show raw Claude output
 	verbose bool
@@ -473,6 +484,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case elapsedTickMsg:
 		if a.state == StateRunning {
 			return a, tickElapsed()
+		}
+		return a, nil
+
+	case rateLimitCountdownTickMsg:
+		if a.state == StateRateLimitWaiting {
+			return a, tickRateLimitCountdown()
 		}
 		return a, nil
 
@@ -932,10 +949,15 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 	}
 
 	var autoActionCmd tea.Cmd
+	var extraCmd tea.Cmd
 
 	switch event.Type {
 	case loop.EventIterationStart:
 		if isCurrentPRD {
+			if a.state == StateRateLimitWaiting {
+				a.state = StateRunning
+				extraCmd = tickElapsed()
+			}
 			a.lastActivity = "Starting iteration..."
 		}
 	case loop.EventAssistantText:
@@ -992,8 +1014,21 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 				a.lastActivity = "Error: " + event.Err.Error()
 			}
 		}
+	case loop.EventRateLimitWaiting:
+		if isCurrentPRD {
+			a.state = StateRateLimitWaiting
+			a.rateLimitRetryAt = event.RetryAt
+			a.rateLimitAttemptNumber = event.AttemptNumber
+			a.rateLimitMaxAttempts = event.MaxAttempts
+			a.lastActivity = event.Text
+			extraCmd = tickRateLimitCountdown()
+		}
 	case loop.EventRetrying:
 		if isCurrentPRD {
+			if a.state == StateRateLimitWaiting {
+				a.state = StateRunning
+				extraCmd = tickElapsed()
+			}
 			a.lastActivity = event.Text
 		}
 	case loop.EventWatchdogTimeout:
@@ -1028,11 +1063,8 @@ func (a App) handleLoopEvent(prdName string, event loop.Event) (tea.Model, tea.C
 		a.tabBar.Refresh()
 	}
 
-	// Continue listening for manager events, plus any auto-action commands
-	if autoActionCmd != nil {
-		return a, tea.Batch(a.listenForManagerEvents(), autoActionCmd)
-	}
-	return a, a.listenForManagerEvents()
+	// Continue listening for manager events, plus any auto-action or extra commands
+	return a, tea.Batch(a.listenForManagerEvents(), autoActionCmd, extraCmd)
 }
 
 // handleLoopFinished handles when a loop finishes.
@@ -1633,6 +1665,13 @@ func tickWorktreeSpinner() tea.Cmd {
 func tickElapsed() tea.Cmd {
 	return tea.Tick(time.Second, func(time.Time) tea.Msg {
 		return elapsedTickMsg{}
+	})
+}
+
+// tickRateLimitCountdown returns a tea.Cmd that ticks every second for the rate-limit countdown.
+func tickRateLimitCountdown() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return rateLimitCountdownTickMsg{}
 	})
 }
 

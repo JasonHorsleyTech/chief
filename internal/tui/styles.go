@@ -105,12 +105,13 @@ var (
 	statusPausedStyle     = lipgloss.NewStyle().Foreground(WarningColor)
 
 	// State badge styles (with bold for headers)
-	StateReadyStyle    = lipgloss.NewStyle().Bold(true).Foreground(MutedColor)
-	StateRunningStyle  = lipgloss.NewStyle().Bold(true).Foreground(PrimaryColor)
-	StatePausedStyle   = lipgloss.NewStyle().Bold(true).Foreground(WarningColor)
-	StateStoppedStyle  = lipgloss.NewStyle().Bold(true).Foreground(MutedColor)
-	StateCompleteStyle = lipgloss.NewStyle().Bold(true).Foreground(SuccessColor)
-	StateErrorStyle    = lipgloss.NewStyle().Bold(true).Foreground(ErrorColor)
+	StateReadyStyle             = lipgloss.NewStyle().Bold(true).Foreground(MutedColor)
+	StateRunningStyle           = lipgloss.NewStyle().Bold(true).Foreground(PrimaryColor)
+	StatePausedStyle            = lipgloss.NewStyle().Bold(true).Foreground(WarningColor)
+	StateStoppedStyle           = lipgloss.NewStyle().Bold(true).Foreground(MutedColor)
+	StateCompleteStyle          = lipgloss.NewStyle().Bold(true).Foreground(SuccessColor)
+	StateErrorStyle             = lipgloss.NewStyle().Bold(true).Foreground(ErrorColor)
+	StateRateLimitWaitingStyle  = lipgloss.NewStyle().Bold(true).Foreground(WarningColor)
 )
 
 // Title and label styles
@@ -148,6 +149,7 @@ var (
 	ActivityErrorStyle    = lipgloss.NewStyle().Foreground(ErrorColor).Padding(0, 1)
 	ActivityCompleteStyle = lipgloss.NewStyle().Foreground(SuccessColor).Padding(0, 1)
 	ActivityMutedStyle    = lipgloss.NewStyle().Foreground(MutedColor).Padding(0, 1)
+	ActivityWaitingStyle  = lipgloss.NewStyle().Foreground(WarningColor).Padding(0, 1)
 )
 
 // Divider styles
@@ -238,6 +240,8 @@ func GetStateStyle(state AppState) lipgloss.Style {
 		return StateErrorStyle
 	case StateStopped:
 		return StateStoppedStyle
+	case StateRateLimitWaiting:
+		return StateRateLimitWaitingStyle
 	default:
 		return StateReadyStyle
 	}
@@ -252,6 +256,8 @@ func GetActivityStyle(state AppState) lipgloss.Style {
 		return ActivityErrorStyle
 	case StateComplete:
 		return ActivityCompleteStyle
+	case StateRateLimitWaiting:
+		return ActivityWaitingStyle
 	default:
 		return ActivityMutedStyle
 	}
