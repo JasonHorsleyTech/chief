@@ -290,8 +290,18 @@ func parseTUIFlags() *TUIOptions {
 }
 
 func runNew() {
+	promptsDir := extractGlobalPromptsDir()
+	if promptsDir == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			if cfg, cfgErr := config.Load(cwd); cfgErr == nil && cfg.PromptsDir != "" {
+				if info, statErr := os.Stat(cfg.PromptsDir); statErr == nil && info.IsDir() {
+					promptsDir = cfg.PromptsDir
+				}
+			}
+		}
+	}
 	opts := cmd.NewOptions{
-		PromptsDir: extractGlobalPromptsDir(),
+		PromptsDir: promptsDir,
 	}
 
 	// Find position of "new" in os.Args, then parse name and context from
@@ -321,8 +331,18 @@ func runNew() {
 }
 
 func runEdit() {
+	promptsDir := extractGlobalPromptsDir()
+	if promptsDir == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			if cfg, cfgErr := config.Load(cwd); cfgErr == nil && cfg.PromptsDir != "" {
+				if info, statErr := os.Stat(cfg.PromptsDir); statErr == nil && info.IsDir() {
+					promptsDir = cfg.PromptsDir
+				}
+			}
+		}
+	}
 	opts := cmd.EditOptions{
-		PromptsDir: extractGlobalPromptsDir(),
+		PromptsDir: promptsDir,
 	}
 
 	// Find position of "edit" in os.Args, then parse name and flags from
@@ -489,6 +509,17 @@ Run 'chief config' to view settings, 'chief config init' to create a config file
 }
 
 func runTUIWithOptions(opts *TUIOptions) {
+	// Resolve prompts dir: CLI flag > config value > "" (use embedded prompts)
+	if opts.PromptsDir == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			if cfg, cfgErr := config.Load(cwd); cfgErr == nil && cfg.PromptsDir != "" {
+				if info, statErr := os.Stat(cfg.PromptsDir); statErr == nil && info.IsDir() {
+					opts.PromptsDir = cfg.PromptsDir
+				}
+			}
+		}
+	}
+
 	prdPath := opts.PRDPath
 
 	// If no PRD specified, try to find one
