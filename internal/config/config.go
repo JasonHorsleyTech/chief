@@ -11,8 +11,12 @@ const configFile = ".chief/config.yaml"
 
 // Config holds project-level settings for Chief.
 type Config struct {
-	Worktree   WorktreeConfig   `yaml:"worktree"`
-	OnComplete OnCompleteConfig `yaml:"onComplete"`
+	Worktree              WorktreeConfig   `yaml:"worktree"`
+	OnComplete            OnCompleteConfig `yaml:"onComplete"`
+	PromptsDir            string           `yaml:"promptsDir"`
+	RetryOnRateLimit      bool             `yaml:"retryOnRateLimit"`
+	RetryIntervalMinutes  int              `yaml:"retryIntervalMinutes"`
+	MaxRateLimitRetries   int              `yaml:"maxRateLimitRetries"`
 }
 
 // WorktreeConfig holds worktree-related settings.
@@ -26,9 +30,12 @@ type OnCompleteConfig struct {
 	CreatePR bool `yaml:"createPR"`
 }
 
-// Default returns a Config with zero-value defaults.
+// Default returns a Config with sensible defaults.
 func Default() *Config {
-	return &Config{}
+	return &Config{
+		RetryIntervalMinutes: 60,
+		MaxRateLimitRetries:  3,
+	}
 }
 
 // configPath returns the full path to the config file.
