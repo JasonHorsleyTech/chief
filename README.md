@@ -46,6 +46,39 @@ See the [documentation](https://minicodemonkey.github.io/chief/concepts/how-it-w
 
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
 
+## Configuration
+
+Chief reads settings from `.chief/config.yaml` in your project directory. Run `chief config init` to create the file with all options documented inline, or `chief config` to view your current settings.
+
+### Config fields
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `worktree.setup` | `""` | Shell command run when setting up a new worktree (e.g. `"npm install"`) |
+| `onComplete.push` | `false` | Push to remote when all stories complete |
+| `onComplete.createPR` | `false` | Open a pull request when all stories complete |
+| `promptsDir` | `""` | Path to a custom prompts directory; falls back to embedded prompts when empty |
+| `retryOnRateLimit` | `false` | Automatically wait and retry when Claude hits an API rate limit |
+| `retryIntervalMinutes` | `60` | Minutes to wait before retrying after a rate limit |
+| `maxRateLimitRetries` | `3` | Maximum number of rate-limit retries before stopping |
+
+### Example: overnight runs with rate-limit retry
+
+```yaml
+# .chief/config.yaml
+
+# Automatically recover from API rate limits so chief can run overnight
+retryOnRateLimit: true
+retryIntervalMinutes: 60   # wait 1 hour between retries
+maxRateLimitRetries: 5     # try up to 5 times before giving up
+
+onComplete:
+  push: true       # push commits when done
+  createPR: true   # open a pull request automatically
+```
+
+When `retryOnRateLimit` is enabled, chief displays a live countdown in the TUI showing when the next retry will happen (e.g. _"Rate limit — retrying in 0:58:12  (Attempt 1/5)"_). Other PRDs continue running normally during the wait.
+
 ## License
 
 MIT
