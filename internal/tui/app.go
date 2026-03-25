@@ -116,6 +116,9 @@ type worktreeSpinnerTickMsg struct{}
 // elapsedTickMsg is sent every second to update the elapsed time display.
 type elapsedTickMsg struct{}
 
+// autoStartMsg is sent on Init to trigger automatic loop start.
+type autoStartMsg struct{}
+
 // settingsGHCheckResultMsg is sent when GH CLI validation completes in settings.
 type settingsGHCheckResultMsg struct {
 	installed     bool
@@ -224,6 +227,9 @@ type App struct {
 
 	// Verbose mode - show raw Claude output
 	verbose bool
+
+	// Auto-start mode - immediately start the loop on launch
+	autoStart bool
 
 	// Post-exit action - what to do after TUI exits
 	PostExitAction PostExitAction
@@ -358,6 +364,11 @@ func (a *App) SetVerbose(v bool) {
 	a.verbose = v
 }
 
+// SetAutoStart enables auto-start mode: the loop starts immediately on launch.
+func (a *App) SetAutoStart(v bool) {
+	a.autoStart = v
+}
+
 // DisableRetry disables automatic retry on Claude crashes.
 func (a *App) DisableRetry() {
 	if a.manager != nil {
@@ -380,12 +391,20 @@ func (a App) Init() tea.Cmd {
 		_ = a.progressWatcher.Start()
 	}
 
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		tea.EnterAltScreen,
 		a.listenForPRDChanges(),
 		a.listenForManagerEvents(),
 		a.listenForProgressChanges(),
-	)
+	}
+
+	if a.autoStart {
+		cmds = append(cmds, func() tea.Msg {
+			return autoStartMsg{}
+		})
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // listenForManagerEvents listens for events from all managed loops.
@@ -411,6 +430,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Log viewer size is set authoritatively in renderLogView (with correct -4 width).
 		// Only update height here for scroll calculations; width will match on next render.
 		a.logViewer.SetSize(a.width-4, a.height-headerHeight-footerHeight-2)
+		return a, nil
+
+	case autoStartMsg:
+		if a.state == StateReady {
+			return a.startLoop()
+		}
 		return a, nil
 
 	case LoopEventMsg:

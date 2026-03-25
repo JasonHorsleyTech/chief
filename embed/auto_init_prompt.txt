@@ -1,0 +1,106 @@
+# Chief PRD Generator (Automatic Mode)
+
+You are creating a Product Requirements Document (PRD) for a software feature.
+
+## Your Task
+
+Create a `prd.md` file at `{{PRD_DIR}}/prd.md` with a structured PRD based on the context below.
+
+**Important:** Do NOT start implementing. Your ONLY job is to create the `prd.md` file. Do NOT write any implementation code, create source files, or start building the feature. You are a PRD writer, not an implementer.
+
+## Context
+
+{{CONTEXT}}
+
+---
+
+## Instructions
+
+This is fully automatic mode. Do NOT ask any questions. Make reasonable assumptions based on the context provided. If the context is vague, examine the existing codebase to understand the project and create a sensible PRD with reasonable scope.
+
+Write the PRD with these sections:
+
+### 1. Introduction/Overview
+Brief description of the feature and the problem it solves.
+
+### 2. Goals
+Specific, measurable objectives (bullet list).
+
+### 3. User Stories
+Each story needs:
+- **Title:** Short descriptive name
+- **Description:** "As a [user], I want [feature] so that [benefit]"
+- **Acceptance Criteria:** Verifiable checklist of what "done" means
+
+Each story should be small enough to implement in one focused coding session.
+
+**Format:**
+```markdown
+### US-001: [Title]
+**Priority:** 1
+**Description:** As a [user], I want [feature] so that [benefit].
+
+**Acceptance Criteria:**
+- [ ] Specific verifiable criterion
+- [ ] Another criterion
+```
+
+**Guidelines:**
+- Lower priority numbers = higher priority. Build foundations first.
+- Order stories so earlier ones enable later ones (consider dependencies).
+- Acceptance criteria must be verifiable, not vague. "Works correctly" is bad. "Button shows confirmation dialog before deleting" is good.
+- Include quality stories for tests and documentation as needed.
+
+### 4. Functional Requirements
+Numbered list of specific functionalities:
+- "FR-1: The system must allow users to..."
+- "FR-2: When a user clicks X, the system must..."
+
+Be explicit and unambiguous.
+
+### 5. Non-Goals (Out of Scope)
+What this feature will NOT include. Critical for managing scope and preventing creep.
+
+### 6. Design Considerations (Optional)
+- UI/UX requirements
+- Links to mockups if available
+- Relevant existing components to reuse
+
+### 7. Technical Considerations (Optional)
+- Known constraints or dependencies
+- Integration points with existing systems
+- Performance requirements
+
+### 8. Success Metrics
+How will success be measured? Be specific:
+- "Reduce time to complete X by 50%"
+- "Increase conversion rate by 10%"
+- "Users can accomplish Y in under 3 clicks"
+
+---
+
+## Writing Quality
+
+The PRD reader may be a junior developer or AI agent. Therefore:
+
+- Be explicit and unambiguous
+- Avoid jargon or explain it when used
+- Provide enough detail to understand purpose and core logic
+- Number requirements for easy reference
+- Use concrete examples where helpful
+
+---
+
+## Checklist
+
+Before saving the PRD, verify:
+
+- [ ] User stories are small, atomic, and specific
+- [ ] Acceptance criteria are verifiable (not vague)
+- [ ] Functional requirements are numbered and unambiguous
+- [ ] Non-goals section defines clear boundaries
+- [ ] Success metrics are specific and measurable
+
+---
+
+Write the `prd.md` file now. Do not output anything else after creating the file.

@@ -4,9 +4,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/minicodemonkey/chief/embed"
 	"github.com/minicodemonkey/chief/internal/loop"
@@ -19,9 +22,11 @@ type NewOptions struct {
 	Context  string        // Optional context to pass to the agent
 	BaseDir  string        // Base directory for .chief/prds/ (default: current directory)
 	Provider loop.Provider // Agent CLI provider (Claude or Codex)
+	Start    bool          // After creation, launch TUI and start loop
+	Auto     bool          // Non-interactive PRD creation (hands-off mode)
 }
 
-// RunNew creates a new PRD by launching an interactive agent session.
+// RunNew creates a new PRD by launching an agent session.
 func RunNew(opts NewOptions) error {
 	// Set defaults
 	if opts.Name == "" {
@@ -52,19 +57,30 @@ func RunNew(opts NewOptions) error {
 		return fmt.Errorf("PRD already exists at %s. Use 'chief edit %s' to modify it", prdMdPath, opts.Name)
 	}
 
-	// Get the init prompt with the PRD directory path
-	prompt := embed.GetInitPrompt(prdDir, opts.Context)
 	if opts.Provider == nil {
 		return fmt.Errorf("new command requires Provider to be set")
 	}
 
-	// Launch interactive agent session
-	fmt.Printf("Creating PRD in %s...\n", prdDir)
-	fmt.Printf("Launching %s to help you create your PRD...\n", opts.Provider.Name())
-	fmt.Println()
+	if opts.Auto {
+		// Non-interactive mode: agent makes all decisions
+		prompt := embed.GetAutoInitPrompt(prdDir, opts.Context)
+		fmt.Printf("Creating PRD in %s (automatic mode)...\n", prdDir)
+		fmt.Printf("Using %s to generate PRD...\n", opts.Provider.Name())
+		fmt.Println()
 
-	if err := runInteractiveAgent(opts.Provider, opts.BaseDir, prompt); err != nil {
-		return fmt.Errorf("%s session failed: %w", opts.Provider.Name(), err)
+		if err := runNonInteractiveAgent(opts.Provider, opts.BaseDir, prompt); err != nil {
+			return fmt.Errorf("%s session failed: %w", opts.Provider.Name(), err)
+		}
+	} else {
+		// Interactive mode: agent asks questions
+		prompt := embed.GetInitPrompt(prdDir, opts.Context)
+		fmt.Printf("Creating PRD in %s...\n", prdDir)
+		fmt.Printf("Launching %s to help you create your PRD...\n", opts.Provider.Name())
+		fmt.Println()
+
+		if err := runInteractiveAgent(opts.Provider, opts.BaseDir, prompt); err != nil {
+			return fmt.Errorf("%s session failed: %w", opts.Provider.Name(), err)
+		}
 	}
 
 	// Check if prd.md was created
@@ -83,7 +99,9 @@ func RunNew(opts NewOptions) error {
 		fmt.Println("\nPRD created successfully!")
 	}
 
-	fmt.Printf("\nYour PRD is ready! Run 'chief' or 'chief %s' to start working on it.\n", opts.Name)
+	if !opts.Start {
+		fmt.Printf("\nYour PRD is ready! Run 'chief' or 'chief %s' to start working on it.\n", opts.Name)
+	}
 	return nil
 }
 
@@ -95,6 +113,21 @@ func runInteractiveAgent(provider loop.Provider, workDir, prompt string) error {
 	cmd := provider.InteractiveCommand(workDir, prompt)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// runNonInteractiveAgent launches a non-interactive agent session for automatic PRD creation.
+func runNonInteractiveAgent(provider loop.Provider, workDir, prompt string) error {
+	if provider == nil {
+		return fmt.Errorf("non-interactive agent requires Provider to be set")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	cmd := provider.LoopCommand(ctx, prompt, workDir)
+	// LoopCommand outputs stream-json which isn't human-readable; discard it.
+	// The agent writes prd.md as a file side effect.
+	cmd.Stdout = io.Discard
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }

@@ -28,6 +28,7 @@ type TUIOptions struct {
 	Merge         bool
 	Force         bool
 	NoRetry       bool
+	AutoStart     bool
 	Agent         string // --agent claude|codex|opencode|cursor
 	AgentPath     string // --agent-path
 }
@@ -44,6 +45,9 @@ func main() {
 			return
 		case "status":
 			runStatus()
+			return
+		case "start":
+			runStart()
 			return
 		case "list":
 			runList()
@@ -256,13 +260,21 @@ func parseTUIFlags() *TUIOptions {
 func runNew() {
 	opts := cmd.NewOptions{}
 
-	// Parse arguments: chief new [name] [context...] [--agent X] [--agent-path X]
+	// Parse arguments: chief new [name] [context...] [--agent X] [--agent-path X] [--start] [--auto]
 	flagAgent, flagPath, positional := parseAgentFlags(os.Args, 2)
 	// Filter out remaining flags, keep only positional args
 	var args []string
 	for _, a := range positional {
-		if !strings.HasPrefix(a, "-") {
-			args = append(args, a)
+		switch a {
+		case "--start":
+			opts.Start = true
+		case "--auto":
+			opts.Auto = true
+			opts.Start = true // --auto implies --start
+		default:
+			if !strings.HasPrefix(a, "-") {
+				args = append(args, a)
+			}
 		}
 	}
 	if len(args) > 0 {
@@ -276,6 +288,25 @@ func runNew() {
 	if err := cmd.RunNew(opts); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// If --start or --auto, launch TUI with auto-start after successful PRD creation
+	if opts.Start {
+		name := opts.Name
+		if name == "" {
+			name = "main"
+		}
+		prdPath := fmt.Sprintf(".chief/prds/%s/prd.md", name)
+		if _, err := os.Stat(prdPath); err == nil {
+			tuiOpts := &TUIOptions{
+				PRDPath:   prdPath,
+				AutoStart: true,
+				Agent:     flagAgent,
+				AgentPath: flagPath,
+			}
+			cmd.CheckVersionOnStartup(Version)
+			runTUIWithOptions(tuiOpts)
+		}
 	}
 }
 
@@ -329,6 +360,70 @@ func runList() {
 	}
 }
 
+func runStart() {
+	opts := &TUIOptions{
+		AutoStart: true,
+	}
+
+	// Parse: chief start [name] [--agent X] [--agent-path X] [--max-iterations N] [--verbose] [--no-retry]
+	flagAgent, flagPath, remaining := parseAgentFlags(os.Args, 2)
+	opts.Agent = flagAgent
+	opts.AgentPath = flagPath
+
+	for i := 0; i < len(remaining); i++ {
+		arg := remaining[i]
+		switch {
+		case arg == "--verbose":
+			opts.Verbose = true
+		case arg == "--no-retry":
+			opts.NoRetry = true
+		case arg == "--max-iterations" || arg == "-n":
+			if i+1 < len(remaining) {
+				i++
+				n, err := strconv.Atoi(remaining[i])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid value for %s: %s\n", arg, remaining[i])
+					os.Exit(1)
+				}
+				if n < 1 {
+					fmt.Fprintf(os.Stderr, "Error: --max-iterations must be at least 1\n")
+					os.Exit(1)
+				}
+				opts.MaxIterations = n
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: %s requires a value\n", arg)
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "--max-iterations="):
+			val := strings.TrimPrefix(arg, "--max-iterations=")
+			n, err := strconv.Atoi(val)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: invalid value for --max-iterations: %s\n", val)
+				os.Exit(1)
+			}
+			if n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --max-iterations must be at least 1\n")
+				os.Exit(1)
+			}
+			opts.MaxIterations = n
+		case strings.HasPrefix(arg, "-"):
+			fmt.Fprintf(os.Stderr, "Error: unknown flag: %s\n", arg)
+			fmt.Fprintf(os.Stderr, "Run 'chief start --help' for usage.\n")
+			os.Exit(1)
+		default:
+			// Positional argument: PRD name or path
+			if strings.HasSuffix(arg, ".md") || strings.HasSuffix(arg, ".json") || strings.HasSuffix(arg, "/") {
+				opts.PRDPath = arg
+			} else {
+				opts.PRDPath = fmt.Sprintf(".chief/prds/%s/prd.md", arg)
+			}
+		}
+	}
+
+	cmd.CheckVersionOnStartup(Version)
+	runTUIWithOptions(opts)
+}
+
 // resolveProvider loads config and resolves the agent provider, exiting on error.
 func resolveProvider(flagAgent, flagPath string) loop.Provider {
 	cwd, err := os.Getwd()
@@ -369,7 +464,15 @@ func runTUIWithOptions(opts *TUIOptions) {
 			prdPath = findAvailablePRD()
 		}
 
-		// If still no PRD found, run first-time setup
+		// If still no PRD found
+		if prdPath == "" && opts.AutoStart {
+			fmt.Fprintf(os.Stderr, "Error: no PRD found to start.\n")
+			fmt.Fprintf(os.Stderr, "Create one first:\n")
+			fmt.Fprintf(os.Stderr, "  chief new                          # Interactive\n")
+			fmt.Fprintf(os.Stderr, "  chief new myfeature --auto \"desc\"  # Automatic\n")
+			os.Exit(1)
+		}
+
 		if prdPath == "" {
 			cwd, _ := os.Getwd()
 			showGitignore := git.IsGitRepo(cwd) && !git.IsChiefIgnored(cwd)
@@ -457,6 +560,11 @@ func runTUIWithOptions(opts *TUIOptions) {
 		app.DisableRetry()
 	}
 
+	// Auto-start the loop if requested
+	if opts.AutoStart {
+		app.SetAutoStart(true)
+	}
+
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	model, err := p.Run()
 	if err != nil {
@@ -507,6 +615,7 @@ Usage:
 
 Commands:
   new [name] [context]      Create a new PRD interactively
+  start [name]              Launch TUI and immediately start the loop
   edit [name] [options]     Edit an existing PRD interactively
   status [name]             Show progress for a PRD (default: main)
   list                      List all PRDs with progress
@@ -523,6 +632,10 @@ Global Options:
   --force                   Auto-overwrite on conversion conflicts
   --help, -h                Show this help message
   --version, -v             Show version number
+
+New Options:
+  --start                   After creating PRD, launch TUI and start loop
+  --auto                    Create PRD automatically (no questions) and start
 
 Edit Options:
   --merge                   Auto-merge progress on conversion conflicts
@@ -542,10 +655,16 @@ Examples:
   chief --verbose           Launch with raw agent output visible
   chief --agent codex       Use Codex CLI instead of Claude
   chief --agent cursor      Use Cursor CLI as agent
+  chief start               Start working on default PRD immediately
+  chief start auth          Start working on auth PRD immediately
+  chief start auth -n 10    Start auth PRD with 10 max iterations
   chief new                 Create PRD in .chief/prds/main/
   chief new auth            Create PRD in .chief/prds/auth/
   chief new auth "JWT authentication for REST API"
                             Create PRD with context hint
+  chief new auth --start    Create auth PRD, then start working
+  chief new auth --auto "JWT authentication for REST API"
+                            Auto-create PRD and start working
   chief edit                Edit PRD in .chief/prds/main/
   chief edit auth           Edit PRD in .chief/prds/auth/
   chief edit auth --merge   Edit and auto-merge progress

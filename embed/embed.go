@@ -16,6 +16,9 @@ var initPromptTemplate string
 //go:embed edit_prompt.txt
 var editPromptTemplate string
 
+//go:embed auto_init_prompt.txt
+var autoInitPromptTemplate string
+
 //go:embed detect_setup_prompt.txt
 var detectSetupPromptTemplate string
 
@@ -36,6 +39,15 @@ func GetInitPrompt(prdDir, context string) string {
 		context = "No additional context provided. Ask the user what they want to build."
 	}
 	result := strings.ReplaceAll(initPromptTemplate, "{{PRD_DIR}}", prdDir)
+	return strings.ReplaceAll(result, "{{CONTEXT}}", context)
+}
+
+// GetAutoInitPrompt returns the PRD generator prompt for automatic (non-interactive) mode.
+func GetAutoInitPrompt(prdDir, context string) string {
+	if context == "" {
+		context = "No specific context provided. Examine the existing codebase to understand the project and create a reasonable PRD."
+	}
+	result := strings.ReplaceAll(autoInitPromptTemplate, "{{PRD_DIR}}", prdDir)
 	return strings.ReplaceAll(result, "{{CONTEXT}}", context)
 }
 
